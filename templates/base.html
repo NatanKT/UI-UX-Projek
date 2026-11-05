@@ -1,0 +1,51 @@
+<!doctype html>
+{# layout utama, semua halaman nge-extends ini (lihat extends 'base.html' di template lain) #}
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Penawaran · ERP Workshop{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <script src="{{ url_for('static', filename='app.js') }}" defer></script>
+</head>
+<body>
+{% block body %}
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="brand" href="{{ url_for('index') }}"><span class="mark">W</span> ERP Workshop</a>
+    <nav class="nav">
+      <a class="{{ 'active' if request.endpoint in ('index', 'detail') }}" href="{{ url_for('index') }}">Penawaran</a>
+      {% if g.user and g.user.role in ('admin', 'sales') %}
+        <a class="{{ 'active' if request.endpoint == 'form' }}" href="{{ url_for('form') }}">+ Baru</a>
+      {% endif %}
+      {# menu Master cuma muncul kalau user login dan role admin #}
+      {% if g.user and g.user.role == 'admin' %}
+        <a class="{{ 'active' if request.endpoint in ('master', 'customers', 'customer_add', 'customer_edit', 'customer_toggle', 'users', 'user_add', 'user_edit', 'user_toggle') }}" href="{{ url_for('master') }}">Master</a>
+        <a href="{{ url_for('index') }}">Pengaturan</a>
+      {% endif %}
+    </nav>
+    {% if g.user %}
+    <div class="userbox">
+      <span class="avatar">{{ g.user.name[:2]|upper }}</span>
+      <span class="usertext"><strong>{{ g.user.name }}</strong><small>{{ g.user.role_label }}</small></span>
+      {# tombol logout submit POST ke route 'auth.logout' #}
+      <form method="post" action="{{ url_for('auth.logout') }}">
+        <button class="btn btn-ghost btn-sm" type="submit">Keluar</button>
+      </form>
+    </div>
+    {% endif %}
+  </div>
+</header>
+
+<main class="container">
+{# flash message (success/error) yang dikirim dari route lewat flash() #}
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% for category, message in messages %}
+    <div class="alert {{ category }}">{{ message }}</div>
+  {% endfor %}
+{% endwith %}
+{% block content %}{% endblock %}
+</main>
+{% endblock %}
+</body>
+</html>

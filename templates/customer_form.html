@@ -1,0 +1,29 @@
+{# form ubah customer, dirender dari route 'customer_edit' di app.py #}
+{% extends 'base.html' %}
+
+{% block content %}
+  <a class="backlink" href="{{ url_for('customers') }}">← Kembali ke customer</a>
+
+  <div class="page-head">
+    <div>
+      <p class="eyebrow">Master data · Customer</p>
+      <h1>Ubah Customer</h1>
+      <p class="muted">Perubahan nama berlaku untuk data customer ini.</p>
+    </div>
+  </div>
+
+  <section class="card" style="max-width:560px">
+    {# form submit POST ke route 'customer_edit' dengan id customer #}
+    <form method="post" action="{{ url_for('customer_edit', customer_id=customer.id) }}" data-customer>
+      <div class="field">
+        <label for="name">Nama customer</label>
+        <input id="name" name="name" maxlength="150" required autofocus
+               value="{{ name if name is defined else customer.name }}">
+      </div>
+      <div class="form-actions">
+        <button class="btn" type="submit">Simpan</button>
+        <a class="btn btn-ghost" href="{{ url_for('customers') }}">Batal</a>
+      </div>
+    </form>
+  </section>
+{% endblock %}

@@ -1,0 +1,68 @@
+{# halaman master (tab Proses), dirender dari route 'master' di app.py. masih placeholder/statis #}
+{% extends 'base.html' %}
+
+{% block title %}Master Proses · ERP Workshop{% endblock %}
+
+{% block content %}
+  <div class="page-head">
+    <div>
+      <p class="eyebrow">Master data</p>
+      <h1>Proses</h1>
+      <p class="muted">Data nonaktif tetap tersimpan untuk histori, tapi tidak muncul di form baru.</p>
+    </div>
+  </div>
+
+  <nav class="tabs">
+    <a class="tab active" href="{{ url_for('master') }}">Proses</a>
+    <a class="tab" href="{{ url_for('master') }}">Material</a>
+    <a class="tab" href="{{ url_for('master') }}">Consumables</a>
+    <a class="tab" href="{{ url_for('master') }}">Jenis pekerjaan</a>
+    <a class="tab" href="{{ url_for('customers') }}">Customer</a>
+    <a class="tab" href="{{ url_for('users') }}">User</a>
+  </nav>
+
+  <div class="stack">
+    <section class="card">
+      <h2>Tambah proses</h2>
+      <form>
+        <div class="grid">
+          <div class="field">
+            <label for="name">Nama proses</label>
+            <input id="name" placeholder="Contoh: Grinding">
+          </div>
+          <div class="field">
+            <label for="rate">Biaya operator / jam</label>
+            <input id="rate" type="number" placeholder="85000">
+          </div>
+          <div class="field">
+            <label for="kwh">Daya mesin (kWh)</label>
+            <input id="kwh" type="number" placeholder="3.5">
+          </div>
+          <div class="field">
+            <label for="dep">Depresiasi / jam</label>
+            <input id="dep" type="number" placeholder="12000">
+          </div>
+        </div>
+        <div class="form-actions">
+          <button class="btn" type="button">Tambah</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="card table-card">
+      <div class="card-head" style="padding:20px 22px 0; margin-bottom:14px">
+        <h2 style="margin:0">Daftar proses <small class="muted">0 data</small></h2>
+      </div>
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr><th>Nama</th><th class="num">Operator / jam</th><th class="num">Daya (kWh)</th><th class="num">Depresiasi / jam</th><th>Status</th><th></th></tr>
+          </thead>
+          <tbody>
+            <tr><td class="empty" colspan="6">Belum ada data proses.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+{% endblock %}

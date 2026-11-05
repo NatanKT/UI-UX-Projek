@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+
+# isi kredensial database, jangan di-push
+instance/config.py
+instance/*.db

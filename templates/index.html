@@ -1,0 +1,64 @@
+{# halaman dashboard penawaran, dirender dari route 'index' di app.py. masih placeholder #}
+{% extends 'base.html' %}
+
+{% block content %}
+  <div class="page-head">
+    <div>
+      <p class="eyebrow">Workshop · November 2026</p>
+      <h1>Penawaran</h1>
+      <p class="muted">Ringkasan penawaran dan costing pekerjaan workshop.</p>
+    </div>
+    {# tombol ini ngarah ke route 'form' (halaman buat penawaran baru) #}
+    <a class="btn btn-accent" href="{{ url_for('form') }}">+ Penawaran Baru</a>
+  </div>
+
+  <section class="stats">
+    <div class="stat">
+      <span>Penawaran bulan ini</span>
+      <strong>0</strong>
+      <em>0 draft · 0 terkirim</em>
+    </div>
+    <div class="stat">
+      <span>Menunggu approval</span>
+      <strong>0</strong>
+      <em>Nilai Rp 0</em>
+    </div>
+    <div class="stat highlight">
+      <span>Disetujui bulan ini</span>
+      <strong>Rp 0</strong>
+      <em>0 penawaran</em>
+    </div>
+  </section>
+
+  <form class="filters">
+    <input type="search" placeholder="Cari nomor, customer, atau item">
+    <select>
+      <option>Semua status</option>
+      <option>Draft</option>
+      <option>Menunggu approval</option>
+      <option>Disetujui</option>
+      <option>Ditolak</option>
+    </select>
+    <button class="btn btn-ghost" type="button">Filter</button>
+  </form>
+
+  <div class="card table-card">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Nomor</th>
+          <th>Tanggal</th>
+          <th>Customer</th>
+          <th>Item</th>
+          <th class="num">Qty</th>
+          <th>Status</th>
+          <th class="num">Harga Jual</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td class="empty" colspan="8">Belum ada penawaran.</td></tr>
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

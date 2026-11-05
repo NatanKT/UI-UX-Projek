@@ -1,0 +1,47 @@
+{# form ubah user, dirender dari route 'user_edit' di app.py #}
+{% extends 'base.html' %}
+
+{% block content %}
+  <a class="backlink" href="{{ url_for('users') }}">← Kembali ke user</a>
+
+  <div class="page-head">
+    <div>
+      <p class="eyebrow">Master data · User</p>
+      <h1>Ubah User</h1>
+      <p class="muted">Kosongkan password jika tidak ingin mengubahnya.</p>
+    </div>
+  </div>
+
+  <section class="card" style="max-width:560px">
+    {# form submit POST ke route 'user_edit' dengan id user #}
+    <form method="post" action="{{ url_for('user_edit', user_id=user.id) }}" data-user>
+      <div class="grid">
+        <div class="field">
+          <label for="name">Nama</label>
+          <input id="name" name="name" maxlength="120" required value="{{ data.name }}">
+        </div>
+        <div class="field">
+          <label for="username">Username</label>
+          <input id="username" name="username" maxlength="50" required autocomplete="off" value="{{ data.username }}">
+        </div>
+        <div class="field">
+          <label for="role">Role</label>
+          <select id="role" name="role" required>
+            {% for key, label in roles.items() %}
+              <option value="{{ key }}" {{ 'selected' if data.role == key }}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label for="password">Password baru</label>
+          <input id="password" name="password" type="password" autocomplete="new-password">
+          <p class="hint">Kosongkan jika tidak diubah.</p>
+        </div>
+      </div>
+      <div class="form-actions">
+        <button class="btn" type="submit">Simpan</button>
+        <a class="btn btn-ghost" href="{{ url_for('users') }}">Batal</a>
+      </div>
+    </form>
+  </section>
+{% endblock %}

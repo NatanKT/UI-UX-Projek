@@ -1,0 +1,49 @@
+{# halaman login, dirender dari route 'auth.login' di auth.py #}
+{% extends 'base.html' %}
+
+{% block title %}Masuk · ERP Workshop{% endblock %}
+
+{% block body %}
+<div class="auth">
+  <section class="auth-art">
+    <a class="brand" href="{{ url_for('auth.login') }}"><span class="mark">W</span> ERP Workshop</a>
+    <div class="auth-quote">
+      <p>Dari estimasi menit di lantai kerja, jadi harga penawaran yang bisa dipertanggungjawabkan.</p>
+      <span>Penawaran &amp; costing workshop — satu alur.</span>
+    </div>
+    <span class="muted" style="color:#8f8877; font-size:12px">© 2026 ERP Workshop</span>
+  </section>
+
+  <main class="auth-main">
+    <div class="auth-card">
+      <p class="eyebrow">Selamat datang</p>
+      <h1>Masuk</h1>
+      <p class="muted">Gunakan akun workshop Anda untuk melanjutkan.</p>
+
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for category, message in messages %}
+          <div class="alert {{ category }}">{{ message }}</div>
+        {% endfor %}
+      {% endwith %}
+
+      {# form submit POST ke route 'auth.login' (username + password) #}
+      <form method="post" action="{{ url_for('auth.login') }}">
+        <input type="hidden" name="next" value="{{ request.args.get('next', '') }}">
+        <div class="field">
+          <label for="username">Username</label>
+          <input id="username" name="username" autocomplete="username" required autofocus
+                 value="{{ username or '' }}" placeholder="admin">
+        </div>
+        <div class="field">
+          <label for="password">Password</label>
+          <input id="password" name="password" type="password" autocomplete="current-password"
+                 required placeholder="••••••••">
+        </div>
+        <button class="btn btn-block" type="submit">Masuk</button>
+      </form>
+
+      <p class="auth-foot">Akun awal: <strong>admin</strong> / <strong>admin123</strong></p>
+    </div>
+  </main>
+</div>
+{% endblock %}
