@@ -37,9 +37,11 @@ class MasterTest(unittest.TestCase):
         self.ctx.pop()
 
     # helper: submit form tambah customer
-    def add_customer(self, name):
+    def add_customer(self, kode, nama, **extra):
+        data = {"kode": kode, "nama": nama}
+        data.update(extra)
         return self.client.post(
-            "/master/customers/add", data={"name": name}, follow_redirects=True
+            "/master/customers/add", data=data, follow_redirects=True
         )
 
     # helper: submit form tambah user
@@ -57,33 +59,53 @@ class MasterTest(unittest.TestCase):
 
 
 class CustomerMasterTest(MasterTest):
-    # test: tambah customer valid -> muncul di daftar & tersimpan
+    # test: tambah customer valid -> muncul di daftar & tersimpan lengkap
     def test_tambah_customer(self):
-        response = self.add_customer("PT Maju Jaya")
+        response = self.add_customer(
+            "C-001",
+            "PT Maju Jaya",
+            sales="Rina",
+            telp="021-123",
+            limit_kredit="5000000",
+        )
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"PT Maju Jaya", response.data)
-        self.assertEqual(Customer.query.count(), 1)
+        customer = Customer.query.one()
+        self.assertEqual(customer.kode, "C-001")
+        self.assertEqual(str(customer.limit_kredit), "5000000.00")
+        self.assertEqual(customer.created_by, "testadmin")
+        self.assertEqual(customer.updated_by, "testadmin")
+        self.assertFalse(customer.dihapus)
 
-    # test: nama kosong ditolak + nama dobel (beda huruf besar/kecil) ditolak
-    def test_nama_kosong_dan_duplikat_ditolak(self):
-        self.add_customer("")
-        self.add_customer("PT Maju Jaya")
-        response = self.add_customer("pt maju jaya")
+    # test: kode/nama kosong ditolak + kode/nama dobel (beda huruf besar/kecil) ditolak
+    def test_kode_nama_kosong_dan_duplikat_ditolak(self):
+        self.add_customer("", "")
+        self.add_customer("C-001", "PT Maju Jaya")
+        response = self.add_customer("c-001", "PT Maju Jaya")
+        self.assertIn(b"Kode customer sudah ada.", response.data)
         self.assertIn(b"Nama customer sudah ada.", response.data)
         self.assertEqual(Customer.query.count(), 1)
 
-    # test: ubah nama customer + nonaktifkan customer
-    def test_ubah_dan_nonaktifkan_customer(self):
-        self.add_customer("PT Lama")
+    # test: ubah customer, nonaktifkan, lalu soft delete (hilang dari daftar)
+    def test_ubah_nonaktifkan_dan_hapus_customer(self):
+        self.add_customer("C-001", "PT Lama")
         customer = Customer.query.one()
         self.client.post(
             f"/master/customers/{customer.id}/edit",
-            data={"name": "PT Baru"},
+            data={"kode": "C-001", "nama": "PT Baru", "limit_kredit": "1000"},
         )
-        self.assertEqual(db.session.get(Customer, customer.id).name, "PT Baru")
+        customer = db.session.get(Customer, customer.id)
+        self.assertEqual(customer.nama, "PT Baru")
+        self.assertEqual(str(customer.limit_kredit), "1000.00")
+        self.assertEqual(customer.updated_by, "testadmin")
 
         self.client.post(f"/master/customers/{customer.id}/toggle")
-        self.assertFalse(db.session.get(Customer, customer.id).active)
+        self.assertTrue(db.session.get(Customer, customer.id).discontinued)
+
+        self.client.post(f"/master/customers/{customer.id}/delete")
+        self.assertTrue(db.session.get(Customer, customer.id).dihapus)
+        response = self.client.get("/master/customers")
+        self.assertNotIn(b"PT Baru", response.data)
 
 
 class UserMasterTest(MasterTest):

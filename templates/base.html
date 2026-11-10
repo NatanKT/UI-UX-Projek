@@ -20,7 +20,7 @@
       {% endif %}
       {# menu Master cuma muncul kalau user login dan role admin #}
       {% if g.user and g.user.role == 'admin' %}
-        <a class="{{ 'active' if request.endpoint in ('master', 'customers', 'customer_add', 'customer_edit', 'customer_toggle', 'users', 'user_add', 'user_edit', 'user_toggle') }}" href="{{ url_for('master') }}">Master</a>
+        <a class="{{ 'active' if request.endpoint in ('master', 'customers', 'customer_add', 'customer_edit', 'customer_toggle', 'customer_delete', 'users', 'user_add', 'user_edit', 'user_toggle') }}" href="{{ url_for('master') }}">Master</a>
         <a href="{{ url_for('index') }}">Pengaturan</a>
       {% endif %}
     </nav>

@@ -10,6 +10,9 @@
       <h1>Customer</h1>
       <p class="muted">Data nonaktif tetap tersimpan untuk histori, tapi tidak muncul di form baru.</p>
     </div>
+    <div class="actions">
+      <a class="btn" href="{{ url_for('customer_add') }}">Tambah customer</a>
+    </div>
   </div>
 
   {# tab-tab master, Customer & User ngarah ke route 'customers' dan 'users' #}
@@ -22,59 +25,60 @@
     <a class="tab" href="{{ url_for('users') }}">User</a>
   </nav>
 
-  <div class="stack">
-    <section class="card">
-      <h2>Tambah customer</h2>
-      {# form submit POST ke route 'customer_add' di app.py, input name="name" #}
-      <form method="post" action="{{ url_for('customer_add') }}" data-customer>
-        <div class="grid">
-          <div class="field">
-            <label for="name">Nama customer</label>
-            <input id="name" name="name" maxlength="150" required placeholder="Contoh: PT Maju Jaya">
-          </div>
-        </div>
-        <div class="form-actions">
-          <button class="btn" type="submit">Tambah</button>
-        </div>
-      </form>
-    </section>
-
-    <section class="card table-card">
-      <div class="card-head" style="padding:20px 22px 0; margin-bottom:14px">
-        <h2 style="margin:0">Daftar customer <small class="muted">{{ items|length }} data</small></h2>
-      </div>
-      <div class="table-wrap">
-        <table class="table">
-          <thead>
-            <tr><th>Nama</th><th>Status</th><th class="row-action">Aksi</th></tr>
-          </thead>
-          <tbody>
-            {# loop data customer yang dikirim dari route 'customers' (variabel items) #}
-            {% for item in items %}
-              <tr class="{{ 'row-inactive' if not item.active }}">
-                <td class="strong">{{ item.name }}</td>
-                <td>
-                  <span class="badge {{ 'approved' if item.active else 'draft' }}">
-                    {{ 'Aktif' if item.active else 'Nonaktif' }}
-                  </span>
-                </td>
-                <td class="row-action">
-                  <a class="btn btn-ghost btn-sm" href="{{ url_for('customer_edit', customer_id=item.id) }}">Ubah</a>
-                  <form method="post" action="{{ url_for('customer_toggle', customer_id=item.id) }}"
-                        data-confirm="{{ 'Nonaktifkan customer ini?' if item.active else 'Aktifkan customer ini?' }}"
-                        style="display:inline">
-                    <button class="btn btn-ghost btn-sm" type="submit">
-                      {{ 'Nonaktifkan' if item.active else 'Aktifkan' }}
-                    </button>
-                  </form>
-                </td>
-              </tr>
-            {% else %}
-              <tr><td class="empty" colspan="3">Belum ada data customer.</td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </section>
-  </div>
+  <section class="card table-card">
+    <div class="card-head" style="padding:20px 22px 0; margin-bottom:14px">
+      <h2 style="margin:0">Daftar customer <small class="muted">{{ items|length }} data</small></h2>
+    </div>
+    <div class="table-wrap">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Kode</th>
+            <th>Nama</th>
+            <th>Sales</th>
+            <th>Telp</th>
+            <th class="num">Limit kredit</th>
+            <th>Status</th>
+            <th class="row-action">Aksi</th>
+          </tr>
+        </thead>
+        <tbody>
+          {# loop data customer yang dikirim dari route 'customers' (variabel items) #}
+          {% for item in items %}
+            <tr class="{{ 'row-inactive' if item.discontinued }}">
+              <td>{{ item.kode }}</td>
+              <td class="strong">
+                {{ item.nama }}
+                {% if item.company %}<div class="sub">{{ item.company }}</div>{% endif %}
+              </td>
+              <td>{{ item.sales or '—' }}</td>
+              <td>{{ item.telp or '—' }}</td>
+              <td class="num">Rp {{ "{:,.0f}".format(item.limit_kredit or 0) }}</td>
+              <td>
+                <span class="badge {{ 'approved' if not item.discontinued else 'draft' }}">
+                  {{ 'Aktif' if not item.discontinued else 'Nonaktif' }}
+                </span>
+              </td>
+              <td class="row-action">
+                <a class="btn btn-ghost btn-sm" href="{{ url_for('customer_edit', customer_id=item.id) }}">Ubah</a>
+                <form method="post" action="{{ url_for('customer_toggle', customer_id=item.id) }}"
+                      data-confirm="{{ 'Nonaktifkan customer ini?' if not item.discontinued else 'Aktifkan customer ini?' }}"
+                      style="display:inline">
+                  <button class="btn btn-ghost btn-sm" type="submit">
+                    {{ 'Nonaktifkan' if not item.discontinued else 'Aktifkan' }}
+                  </button>
+                </form>
+                <form method="post" action="{{ url_for('customer_delete', customer_id=item.id) }}"
+                      data-confirm="Hapus customer ini?" style="display:inline">
+                  <button class="btn btn-ghost btn-sm" type="submit">Hapus</button>
+                </form>
+              </td>
+            </tr>
+          {% else %}
+            <tr><td class="empty" colspan="7">Belum ada data customer.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
 {% endblock %}

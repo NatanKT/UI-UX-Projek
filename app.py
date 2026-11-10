@@ -1,6 +1,7 @@
 import os
+from decimal import Decimal, InvalidOperation
 
-from flask import Flask, flash, redirect, render_template, request, url_for
+from flask import Flask, flash, g, redirect, render_template, request, url_for
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 
@@ -79,7 +80,13 @@ def detail():
 @roles_required("admin", "sales")
 def form():
     # ambil customer yang masih aktif buat dropdown "Customer" di form
-    customers = Customer.query.filter_by(active=True).order_by(Customer.name).all()
+    customers = (
+        Customer.query.filter(
+            Customer.dihapus.is_(False), Customer.discontinued.is_(False)
+        )
+        .order_by(Customer.nama)
+        .all()
+    )
     return render_template('form.html', customers=customers)
 
 
@@ -96,48 +103,133 @@ def master():
 # ---------------------------------------------------------------------------
 
 
-# validasi nama customer: wajib diisi, maks 150 char, dan ga boleh dobel
-def _customer_errors(name, customer_id=None):
+# field teks customer + batas panjangnya (buat validasi server-side)
+CUSTOMER_FIELDS = {
+    "kode": ("Kode", 30),
+    "nama": ("Nama", 150),
+    "g_ng": ("G/NG", 10),
+    "sales": ("Sales", 100),
+    "telp": ("Telp", 40),
+    "npwp": ("NPWP", 40),
+    "top": ("TOP", 30),
+    "cara_bayar": ("Cara bayar", 50),
+    "other_bayar": ("Other bayar", 100),
+    "company": ("Company", 100),
+    "bu": ("BU", 50),
+    "kode_oracle": ("Kode Oracle", 50),
+}
+
+
+# ambil semua input customer dari form, strip spasi ujung
+def _customer_data(form):
+    data = {field: (form.get(field) or "").strip() for field in CUSTOMER_FIELDS}
+    data["alamat"] = (form.get("alamat") or "").strip()
+    data["alamat_tagihan"] = (form.get("alamat_tagihan") or "").strip()
+    data["limit_kredit"] = (form.get("limit_kredit") or "0").strip()
+    data["discontinued"] = form.get("discontinued") == "on"
+    return data
+
+
+# isi data form dari record customer (halaman edit)
+def _customer_values(customer):
+    data = {field: getattr(customer, field) or "" for field in CUSTOMER_FIELDS}
+    data["alamat"] = customer.alamat or ""
+    data["alamat_tagihan"] = customer.alamat_tagihan or ""
+    data["limit_kredit"] = str(customer.limit_kredit or 0)
+    data["discontinued"] = customer.discontinued
+    return data
+
+
+# data kosong buat halaman tambah
+def _empty_customer():
+    data = {field: "" for field in CUSTOMER_FIELDS}
+    data.update(alamat="", alamat_tagihan="", limit_kredit="0", discontinued=False)
+    return data
+
+
+# limit kredit disimpan sebagai Decimal; None artinya input bukan angka
+def _limit_kredit(value):
+    try:
+        number = Decimal(value or "0")
+    except InvalidOperation:
+        return None
+    return number if number.is_finite() else None
+
+
+# validasi customer: batas panjang, kode/nama wajib & unik, limit kredit angka
+def _customer_errors(data, customer_id=None):
     errors = []
-    if not name:
-        errors.append("Nama customer wajib diisi.")
-    elif len(name) > 150:
-        errors.append("Nama customer maksimal 150 karakter.")
-    else:
-        query = Customer.query.filter(func.lower(Customer.name) == name.lower())
+    for field, (label, max_length) in CUSTOMER_FIELDS.items():
+        if len(data[field]) > max_length:
+            errors.append(f"{label} maksimal {max_length} karakter.")
+
+    for field, label in (("kode", "Kode customer"), ("nama", "Nama customer")):
+        value = data[field]
+        if not value:
+            errors.append(f"{label} wajib diisi.")
+            continue
+        query = Customer.query.filter(
+            func.lower(getattr(Customer, field)) == value.lower()
+        )
         if customer_id is not None:  # saat edit: kecualikan dirinya sendiri
             query = query.filter(Customer.id != customer_id)
         if query.first() is not None:
-            errors.append("Nama customer sudah ada.")
+            errors.append(f"{label} sudah ada.")
+
+    limit = _limit_kredit(data["limit_kredit"])
+    if limit is None:
+        errors.append("Limit kredit harus angka.")
+    elif limit < 0:
+        errors.append("Limit kredit tidak boleh negatif.")
     return errors
+
+
+# salin data form ke record customer
+def _apply_customer(customer, data):
+    for field in CUSTOMER_FIELDS:
+        setattr(customer, field, data[field])
+    customer.alamat = data["alamat"]
+    customer.alamat_tagihan = data["alamat_tagihan"]
+    customer.limit_kredit = _limit_kredit(data["limit_kredit"])
+    customer.discontinued = data["discontinued"]
 
 
 # halaman daftar customer -> templates/master_customers.html
 @app.get('/master/customers')
 @roles_required("admin")
 def customers():
-    items = Customer.query.order_by(Customer.name).all()
+    items = (
+        Customer.query.filter(Customer.dihapus.is_(False))
+        .order_by(Customer.nama)
+        .all()
+    )
     return render_template('master_customers.html', items=items)
 
 
-# tambah customer, data dari form "Tambah customer" di master_customers.html
-@app.post('/master/customers/add')
+# tambah customer, form di templates/customer_form.html
+@app.route('/master/customers/add', methods=["GET", "POST"])
 @roles_required("admin")
 def customer_add():
-    name = (request.form.get("name") or "").strip()  # ambil input 'name', buang spasi ujung
-    errors = _customer_errors(name)
+    if request.method == "GET":
+        return render_template(
+            "customer_form.html", customer=None, data=_empty_customer()
+        )
+    data = _customer_data(request.form)
+    errors = _customer_errors(data)
     if errors:
         for error in errors:
             flash(error, "error")
-        return redirect(url_for("customers"))  # balik ke daftar, tampilkan pesan error
-    customer = Customer(name=name, active=True)  # bikin record baru
-    db.session.add(customer)  # masuk antrian insert
+        return render_template("customer_form.html", customer=None, data=data)
+    customer = Customer(created_by=g.user.username, updated_by=g.user.username)
+    _apply_customer(customer, data)
+    db.session.add(customer)
     try:
         db.session.commit()  # simpan beneran ke database
         flash("Customer ditambahkan.", "success")
-    except IntegrityError:  # kalau nama dobel (race), batalkan
+    except IntegrityError:  # kalau kode/nama dobel (race), batalkan
         db.session.rollback()
-        flash("Nama customer sudah ada.", "error")
+        flash("Kode atau nama customer sudah ada.", "error")
+        return render_template("customer_form.html", customer=None, data=data)
     return redirect(url_for("customers"))
 
 
@@ -147,41 +239,57 @@ def customer_add():
 def customer_edit(customer_id):
     customer = db.get_or_404(Customer, customer_id)  # 404 kalau id ga ada
     if request.method == "POST":
-        name = (request.form.get("name") or "").strip()
-        errors = _customer_errors(name, customer.id)
+        data = _customer_data(request.form)
+        errors = _customer_errors(data, customer.id)
         if errors:
             for error in errors:
                 flash(error, "error")
             return render_template(
-                "customer_form.html", customer=customer, name=name
+                "customer_form.html", customer=customer, data=data
             )
-        customer.name = name
+        _apply_customer(customer, data)
+        customer.updated_by = g.user.username
         try:
             db.session.commit()
             flash("Customer diperbarui.", "success")
             return redirect(url_for("customers"))
         except IntegrityError:
             db.session.rollback()
-            flash("Nama customer sudah ada.", "error")
+            flash("Kode atau nama customer sudah ada.", "error")
             return render_template(
-                "customer_form.html", customer=customer, name=name
+                "customer_form.html", customer=customer, data=data
             )
-    return render_template("customer_form.html", customer=customer)
+    return render_template(
+        "customer_form.html", customer=customer, data=_customer_values(customer)
+    )
 
 
-# aktif/nonaktif customer (ga dihapus, cuma flip status)
+# aktif/nonaktif customer (ga dihapus, cuma flip status discontinued)
 @app.post('/master/customers/<int:customer_id>/toggle')
 @roles_required("admin")
 def customer_toggle(customer_id):
     customer = db.get_or_404(Customer, customer_id)
-    customer.active = not customer.active
+    customer.discontinued = not customer.discontinued
+    customer.updated_by = g.user.username
     db.session.commit()
     flash(
-        f"Customer {'diaktifkan' if customer.active else 'dinonaktifkan'}.",
+        f"Customer {'diaktifkan' if not customer.discontinued else 'dinonaktifkan'}.",
         "success",
     )
     return redirect(url_for("customers"))
 
+
+# hapus customer = soft delete, data tetap tersimpan untuk histori
+@app.post('/master/customers/<int:customer_id>/delete')
+@roles_required("admin")
+def customer_delete(customer_id):
+    customer = db.get_or_404(Customer, customer_id)
+    customer.dihapus = True
+    customer.updated_by = g.user.username
+    db.session.commit()
+    flash("Customer dihapus.", "success")
+    return redirect(url_for("customers"))
+    
 
 # ---------------------------------------------------------------------------
 # Master user

@@ -1,5 +1,7 @@
-{# form ubah customer, dirender dari route 'customer_edit' di app.py #}
+{# form tambah/ubah customer, dirender dari route 'customer_add' & 'customer_edit' di app.py #}
 {% extends 'base.html' %}
+
+{% block title %}{{ 'Ubah' if customer else 'Tambah' }} Customer · ERP Workshop{% endblock %}
 
 {% block content %}
   <a class="backlink" href="{{ url_for('customers') }}">← Kembali ke customer</a>
@@ -7,18 +9,82 @@
   <div class="page-head">
     <div>
       <p class="eyebrow">Master data · Customer</p>
-      <h1>Ubah Customer</h1>
-      <p class="muted">Perubahan nama berlaku untuk data customer ini.</p>
+      <h1>{{ 'Ubah Customer' if customer else 'Tambah Customer' }}</h1>
+      <p class="muted">Kode dan nama wajib diisi. Field lain boleh dikosongkan.</p>
     </div>
   </div>
 
-  <section class="card" style="max-width:560px">
-    {# form submit POST ke route 'customer_edit' dengan id customer #}
-    <form method="post" action="{{ url_for('customer_edit', customer_id=customer.id) }}" data-customer>
-      <div class="field">
-        <label for="name">Nama customer</label>
-        <input id="name" name="name" maxlength="150" required autofocus
-               value="{{ name if name is defined else customer.name }}">
+  <section class="card">
+    {# POST ke route tambah (customer None) atau ubah (customer ada) #}
+    <form method="post" data-customer
+          action="{{ url_for('customer_edit', customer_id=customer.id) if customer else url_for('customer_add') }}">
+      <div class="grid">
+        <div class="field">
+          <label for="kode">Kode customer</label>
+          <input id="kode" name="kode" maxlength="30" required value="{{ data.kode }}" placeholder="Contoh: C-001">
+        </div>
+        <div class="field">
+          <label for="nama">Nama customer</label>
+          <input id="nama" name="nama" maxlength="150" required value="{{ data.nama }}" placeholder="Contoh: PT Maju Jaya">
+        </div>
+        <div class="field">
+          <label for="g_ng">G/NG</label>
+          <input id="g_ng" name="g_ng" maxlength="10" value="{{ data.g_ng }}">
+        </div>
+        <div class="field">
+          <label for="sales">Sales</label>
+          <input id="sales" name="sales" maxlength="100" value="{{ data.sales }}" placeholder="Nama sales">
+        </div>
+        <div class="field">
+          <label for="telp">Telp</label>
+          <input id="telp" name="telp" maxlength="40" value="{{ data.telp }}">
+        </div>
+        <div class="field">
+          <label for="npwp">NPWP</label>
+          <input id="npwp" name="npwp" maxlength="40" value="{{ data.npwp }}">
+        </div>
+        <div class="field">
+          <label for="limit_kredit">Limit kredit (Rp)</label>
+          <input id="limit_kredit" name="limit_kredit" type="number" min="0" step="0.01" value="{{ data.limit_kredit }}">
+        </div>
+        <div class="field">
+          <label for="top">TOP</label>
+          <input id="top" name="top" maxlength="30" value="{{ data.top }}" placeholder="Contoh: 30 hari">
+        </div>
+        <div class="field">
+          <label for="cara_bayar">Cara bayar</label>
+          <input id="cara_bayar" name="cara_bayar" maxlength="50" value="{{ data.cara_bayar }}">
+        </div>
+        <div class="field">
+          <label for="other_bayar">Other bayar</label>
+          <input id="other_bayar" name="other_bayar" maxlength="100" value="{{ data.other_bayar }}">
+        </div>
+        <div class="field">
+          <label for="company">Company</label>
+          <input id="company" name="company" maxlength="100" value="{{ data.company }}">
+        </div>
+        <div class="field">
+          <label for="bu">BU</label>
+          <input id="bu" name="bu" maxlength="50" value="{{ data.bu }}">
+        </div>
+        <div class="field">
+          <label for="kode_oracle">Kode Oracle</label>
+          <input id="kode_oracle" name="kode_oracle" maxlength="50" value="{{ data.kode_oracle }}">
+        </div>
+        <div class="field">
+          <label class="check">
+            <input type="checkbox" name="discontinued" {{ 'checked' if data.discontinued }}>
+            <span>Discontinued <small class="muted">(tidak muncul di form penawaran baru)</small></span>
+          </label>
+        </div>
+        <div class="field span-2">
+          <label for="alamat">Alamat</label>
+          <textarea id="alamat" name="alamat" rows="2">{{ data.alamat }}</textarea>
+        </div>
+        <div class="field span-2">
+          <label for="alamat_tagihan">Alamat tagihan</label>
+          <textarea id="alamat_tagihan" name="alamat_tagihan" rows="2">{{ data.alamat_tagihan }}</textarea>
+        </div>
       </div>
       <div class="form-actions">
         <button class="btn" type="submit">Simpan</button>

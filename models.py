@@ -17,8 +17,25 @@ class Customer(db.Model):
     __tablename__ = "customers"
 
     id = db.Column(db.Integer, primary_key=True)  # id auto increment
-    name = db.Column(db.String(150), unique=True, nullable=False)  # nama customer, ga boleh dobel
-    active = db.Column(db.Boolean, nullable=False, default=True)  # aktif/nonaktif, default aktif
+    kode = db.Column("Kode", db.String(30), unique=True, nullable=False)  # kode customer, ga boleh dobel
+    nama = db.Column("Nama", db.String(150), unique=True, nullable=False)  # nama customer, ga boleh dobel
+    g_ng = db.Column("G_NG", db.String(10))
+    sales = db.Column("Sales", db.String(100))
+    telp = db.Column("Telp", db.String(40))
+    npwp = db.Column("NPWP", db.String(40))
+    created_by = db.Column("created_by", db.String(50))  # username yang bikin data
+    updated_by = db.Column("updated_by", db.String(50))  # username yang terakhir ubah
+    dihapus = db.Column("dihapus", db.Boolean, nullable=False, default=False)  # soft delete
+    limit_kredit = db.Column("LimitKredit", db.Numeric(15, 2), nullable=False, default=0)
+    top = db.Column("TOP", db.String(30))  # term of payment
+    alamat = db.Column("Alamat", db.Text)
+    discontinued = db.Column("discontinued", db.Boolean, nullable=False, default=False)  # nonaktif, ga muncul di form baru
+    alamat_tagihan = db.Column("Alamat_Tagihan", db.Text)
+    cara_bayar = db.Column("Cara_Bayar", db.String(50))
+    other_bayar = db.Column("Other_Bayar", db.String(100))
+    company = db.Column("Company", db.String(100))
+    bu = db.Column("BU", db.String(50))
+    kode_oracle = db.Column("Kode_Oracle", db.String(50))
 
 
 # ini tabel 'users' di database (master user / login)

@@ -30,7 +30,7 @@
               <option value="">— pilih customer —</option>
               {# dropdown customer diisi dari route 'form' (variabel customers, cuma yang aktif) #}
               {% for customer in customers %}
-                <option value="{{ customer.id }}">{{ customer.name }}</option>
+                <option value="{{ customer.id }}">{{ customer.kode }} — {{ customer.nama }}</option>
               {% endfor %}
             </select>
           </div>
