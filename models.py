@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -36,6 +38,37 @@ class Customer(db.Model):
     company = db.Column("Company", db.String(100))
     bu = db.Column("BU", db.String(50))
     kode_oracle = db.Column("Kode_Oracle", db.String(50))
+
+
+# ini tabel 'quotations' (penawaran). status 'draft' = masih disimpan, belum dikirim
+class Quotation(db.Model):
+    __tablename__ = "quotations"
+
+    id = db.Column(db.Integer, primary_key=True)
+    nomor = db.Column(db.String(30), unique=True)  # DRF-0001, diisi setelah id didapat
+    status = db.Column(db.String(20), nullable=False, default="draft")
+    customer_id = db.Column(db.Integer, db.ForeignKey("customers.id"))
+    sales = db.Column(db.String(100))
+    item = db.Column(db.String(150))
+    qty = db.Column(db.Integer, nullable=False, default=0)
+    work = db.Column(db.String(50))
+    notes = db.Column(db.Text)
+    shape = db.Column(db.String(30))
+    diameter = db.Column(db.Integer, nullable=False, default=0)
+    length = db.Column(db.Integer, nullable=False, default=0)
+    operators = db.Column(db.Integer, nullable=False, default=0)
+    design_baru = db.Column(db.Boolean, nullable=False, default=False)
+    material = db.Column(db.String(100))
+    proses = db.Column(db.Text)  # JSON: daftar {nama, menit}
+    consumables = db.Column(db.Text)  # JSON: daftar {nama, qty}
+    created_by = db.Column(db.String(50))
+    updated_by = db.Column(db.String(50))
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = db.Column(
+        db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+    customer = db.relationship("Customer")
 
 
 # ini tabel 'users' di database (master user / login)

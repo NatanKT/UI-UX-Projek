@@ -16,7 +16,7 @@
     <nav class="nav">
       <a class="{{ 'active' if request.endpoint in ('index', 'detail') }}" href="{{ url_for('index') }}">Penawaran</a>
       {% if g.user and g.user.role in ('admin', 'sales') %}
-        <a class="{{ 'active' if request.endpoint == 'form' }}" href="{{ url_for('form') }}">+ Baru</a>
+        <a class="{{ 'active' if request.endpoint in ('form', 'form_save', 'form_edit') }}" href="{{ url_for('form') }}">+ Baru</a>
       {% endif %}
       {# menu Master cuma muncul kalau user login dan role admin #}
       {% if g.user and g.user.role == 'admin' %}

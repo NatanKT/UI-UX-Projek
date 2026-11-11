@@ -15,8 +15,8 @@
   <section class="stats">
     <div class="stat">
       <span>Penawaran bulan ini</span>
-      <strong>0</strong>
-      <em>0 draft · 0 terkirim</em>
+      <strong>{{ drafts|length + submitted|length }}</strong>
+      <em>{{ drafts|length }} draft · {{ submitted|length }} terkirim</em>
     </div>
     <div class="stat">
       <span>Menunggu approval</span>
@@ -42,6 +42,48 @@
     <button class="btn btn-ghost" type="button">Filter</button>
   </form>
 
+  {# section draft: penawaran yang sudah disimpan tapi belum dikirim #}
+  <section class="card table-card" style="margin-bottom:20px">
+    <div class="card-head" style="padding:20px 22px 0; margin-bottom:14px">
+      <h2 style="margin:0">Draft <small class="muted">{{ drafts|length }} data</small></h2>
+    </div>
+    <div class="table-wrap">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Nomor</th>
+            <th>Terakhir diubah</th>
+            <th>Customer</th>
+            <th>Item</th>
+            <th class="num">Qty</th>
+            <th>Status</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for quotation in drafts %}
+            <tr>
+              <td class="strong">{{ quotation.nomor }}</td>
+              <td>{{ quotation.updated_at.strftime('%d-%m-%Y %H:%M') }}</td>
+              <td>{{ quotation.customer.nama if quotation.customer else '—' }}</td>
+              <td>{{ quotation.item or '—' }}</td>
+              <td class="num">{{ quotation.qty }}</td>
+              <td><span class="badge draft">Draft</span></td>
+              <td>
+                <a class="btn btn-ghost btn-sm" href="{{ url_for('form_edit', quotation_id=quotation.id) }}">Lanjutkan</a>
+                <form method="post" action="{{ url_for('form_delete', quotation_id=quotation.id) }}" data-confirm="Hapus draft {{ quotation.nomor }}?" style="display:inline">
+                  <button class="btn btn-ghost btn-sm" type="submit">Hapus</button>
+                </form>
+              </td>
+            </tr>
+          {% else %}
+            <tr><td class="empty" colspan="7">Belum ada draft.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
   <div class="card table-card">
     <table class="table">
       <thead>
@@ -57,7 +99,20 @@
         </tr>
       </thead>
       <tbody>
-        <tr><td class="empty" colspan="8">Belum ada penawaran.</td></tr>
+        {% for quotation in submitted %}
+          <tr>
+            <td class="strong">{{ quotation.nomor }}</td>
+            <td>{{ quotation.created_at.strftime('%d-%m-%Y') }}</td>
+            <td>{{ quotation.customer.nama if quotation.customer else '—' }}</td>
+            <td>{{ quotation.item or '—' }}</td>
+            <td class="num">{{ quotation.qty }}</td>
+            <td><span class="badge {{ quotation.status }}">{{ quotation.status|capitalize }}</span></td>
+            <td class="num">Rp 0</td>
+            <td></td>
+          </tr>
+        {% else %}
+          <tr><td class="empty" colspan="8">Belum ada penawaran.</td></tr>
+        {% endfor %}
       </tbody>
     </table>
   </div>

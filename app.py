@@ -1,3 +1,4 @@
+import json
 import os
 from decimal import Decimal, InvalidOperation
 
@@ -6,7 +7,7 @@ from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 
 from auth import bp as auth_bp, login_required, roles_required
-from models import ROLES, Customer, User, db
+from models import ROLES, Customer, Quotation, User, db
 
 app = Flask(__name__, instance_relative_config=True)
 
@@ -61,11 +62,22 @@ with app.app_context():
     seed_users()
 
 
-# halaman utama (dashboard penawaran) -> templates/index.html
+# halaman utama (dashboard penawaran + section draft) -> templates/index.html
 @app.route('/')
 @login_required
 def index():
-    return render_template('index.html')
+    # draft = penawaran yang belum dikirim; section draft di halaman ini
+    drafts = (
+        Quotation.query.filter_by(status="draft")
+        .order_by(Quotation.updated_at.desc())
+        .all()
+    )
+    submitted = (
+        Quotation.query.filter(Quotation.status != "draft")
+        .order_by(Quotation.updated_at.desc())
+        .all()
+    )
+    return render_template('index.html', drafts=drafts, submitted=submitted)
 
 
 # halaman detail penawaran -> templates/detail.html
@@ -75,19 +87,188 @@ def detail():
     return render_template('detail.html')
 
 
-# halaman form penawaran baru -> templates/form.html
-@app.route('/form')
-@roles_required("admin", "sales")
-def form():
-    # ambil customer yang masih aktif buat dropdown "Customer" di form
-    customers = (
+# ---------------------------------------------------------------------------
+# Penawaran (draft dulu, belum ada proses kirim/approval)
+# form-nya ada di templates/form.html
+# ---------------------------------------------------------------------------
+
+
+# pilihan dropdown proses & nama consumable default di form penawaran
+PROSES_OPTIONS = ("Bubut", "Milling", "Drilling", "Grinding", "—")
+CONSUMABLE_NAMES = ("Mata bor HSS Ø12", "Coolant")
+
+
+# angka dari input form; kosong/ngawur dianggap 0 dan tidak boleh negatif
+def _int(value):
+    try:
+        return max(int(value or 0), 0)
+    except ValueError:
+        return 0
+
+
+# pasangkan dua list input (nama + nilai) jadi list dict buat disimpan sebagai JSON
+def _json_rows(names, values, value_key):
+    return [
+        {"nama": (nama or "").strip(), value_key: _int(value)}
+        for nama, value in zip(names, values)
+    ]
+
+
+# isi awal form penawaran baru
+def _empty_quotation():
+    return {
+        "customer_id": None,
+        "item": "",
+        "qty": 0,
+        "work": "Bubut",
+        "notes": "",
+        "shape": "Rod / Bulat",
+        "diameter": 0,
+        "length": 0,
+        "operators": 0,
+        "design_baru": False,
+        "material": "ST 42 — Ø12 mm",
+        "proses": [{"nama": p, "menit": 0} for p in PROSES_OPTIONS[:4]],
+        "consumables": [{"nama": n, "qty": 0} for n in CONSUMABLE_NAMES],
+    }
+
+
+# isi form dari draft yang sudah tersimpan (halaman edit)
+def _quotation_values(quotation):
+    return {
+        "customer_id": quotation.customer_id,
+        "item": quotation.item or "",
+        "qty": quotation.qty,
+        "work": quotation.work or "",
+        "notes": quotation.notes or "",
+        "shape": quotation.shape or "",
+        "diameter": quotation.diameter,
+        "length": quotation.length,
+        "operators": quotation.operators,
+        "design_baru": quotation.design_baru,
+        "material": quotation.material or "",
+        "proses": json.loads(quotation.proses or "[]") or _empty_quotation()["proses"],
+        "consumables": json.loads(quotation.consumables or "[]")
+        or _empty_quotation()["consumables"],
+    }
+
+
+# ambil input form penawaran jadi dict (customer dicek ada di DB)
+def _quotation_form(form):
+    customer = db.session.get(Customer, _int(form.get("customer")))
+    return {
+        "customer_id": customer.id if customer else None,
+        "item": (form.get("item") or "").strip(),
+        "qty": _int(form.get("qty")),
+        "work": form.get("work") or "",
+        "notes": (form.get("notes") or "").strip(),
+        "shape": form.get("shape") or "",
+        "diameter": _int(form.get("diameter")),
+        "length": _int(form.get("length")),
+        "operators": _int(form.get("operators")),
+        "design_baru": form.get("design_baru") == "on",
+        "material": form.get("material") or "",
+        "proses": _json_rows(
+            form.getlist("proses_nama"), form.getlist("proses_menit"), "menit"
+        ),
+        "consumables": _json_rows(
+            form.getlist("consumable_nama"), form.getlist("consumable_qty"), "qty"
+        ),
+    }
+
+
+# salin dict hasil _quotation_form ke record
+def _apply_quotation(quotation, values):
+    for field, value in values.items():
+        if field in ("proses", "consumables"):
+            value = json.dumps(value)
+        setattr(quotation, field, value)
+
+
+# customer aktif buat dropdown "Customer" di form
+def _form_customers():
+    return (
         Customer.query.filter(
             Customer.dihapus.is_(False), Customer.discontinued.is_(False)
         )
         .order_by(Customer.nama)
         .all()
     )
-    return render_template('form.html', customers=customers)
+
+
+# isi ulang form + pesan error (dipakai route simpan)
+def _render_quotation_form(values, quotation=None, errors=()):
+    for error in errors:
+        flash(error, "error")
+    return render_template(
+        "form.html",
+        customers=_form_customers(),
+        values=values,
+        quotation=quotation,
+        proses_options=PROSES_OPTIONS,
+    )
+
+
+# halaman form penawaran baru -> templates/form.html
+@app.route('/form')
+@roles_required("admin", "sales")
+def form():
+    return _render_quotation_form(_empty_quotation())
+
+
+# simpan penawaran sebagai draft, lalu buka lagi dalam mode edit
+@app.post('/form')
+@roles_required("admin", "sales")
+def form_save():
+    values = _quotation_form(request.form)
+    if len(values["item"]) > 150:
+        return _render_quotation_form(values, errors=("Nama item maksimal 150 karakter.",))
+    quotation = Quotation(
+        status="draft",
+        sales=g.user.name,
+        created_by=g.user.username,
+        updated_by=g.user.username,
+    )
+    _apply_quotation(quotation, values)
+    db.session.add(quotation)
+    db.session.flush()  # dapat id dulu buat nomor draft
+    quotation.nomor = f"DRF-{quotation.id:04d}"
+    db.session.commit()
+    flash("Draft penawaran disimpan.", "success")
+    return redirect(url_for("form_edit", quotation_id=quotation.id))
+
+
+# buka/perbarui draft -> templates/form.html
+@app.route('/form/<int:quotation_id>', methods=["GET", "POST"])
+@roles_required("admin", "sales")
+def form_edit(quotation_id):
+    quotation = db.get_or_404(Quotation, quotation_id)
+    if quotation.status != "draft":
+        flash("Penawaran yang sudah dikirim tidak bisa diubah.", "error")
+        return redirect(url_for("index"))
+    if request.method == "POST":
+        values = _quotation_form(request.form)
+        if len(values["item"]) > 150:
+            return _render_quotation_form(
+                values, quotation, ("Nama item maksimal 150 karakter.",)
+            )
+        _apply_quotation(quotation, values)
+        quotation.updated_by = g.user.username
+        db.session.commit()
+        flash("Draft penawaran diperbarui.", "success")
+        return redirect(url_for("form_edit", quotation_id=quotation.id))
+    return _render_quotation_form(_quotation_values(quotation), quotation)
+
+
+# hapus draft dari section draft di dashboard
+@app.post('/form/<int:quotation_id>/delete')
+@roles_required("admin", "sales")
+def form_delete(quotation_id):
+    quotation = db.get_or_404(Quotation, quotation_id)
+    db.session.delete(quotation)
+    db.session.commit()
+    flash("Draft penawaran dihapus.", "success")
+    return redirect(url_for("index"))
 
 
 # halaman master (tab Proses) -> templates/master.html
@@ -268,7 +449,7 @@ def customer_edit(customer_id):
 @app.post('/master/customers/<int:customer_id>/toggle')
 @roles_required("admin")
 def customer_toggle(customer_id):
-    customer = db.get_or_404(Customer, customer_id)
+    customer = db.get_or_404(Customer, customer_id) 
     customer.discontinued = not customer.discontinued
     customer.updated_by = g.user.username
     db.session.commit()
@@ -282,7 +463,7 @@ def customer_toggle(customer_id):
 # hapus customer = soft delete, data tetap tersimpan untuk histori
 @app.post('/master/customers/<int:customer_id>/delete')
 @roles_required("admin")
-def customer_delete(customer_id):
+def customer_delete(customer_id):   
     customer = db.get_or_404(Customer, customer_id)
     customer.dihapus = True
     customer.updated_by = g.user.username
@@ -337,6 +518,7 @@ def _user_errors(data, user_id=None):
 @app.get('/master/users')
 @roles_required("admin")
 def users():
+    
     role = request.args.get("role", "")  # filter dari query string ?role=...
     query = User.query
     if role in ROLES:
@@ -365,7 +547,7 @@ def user_add():
     )
     user.set_password(data["password"])  # hash password sebelum disimpan
     db.session.add(user)
-    try:
+    try:        
         db.session.commit()
         flash("User ditambahkan.", "success")
     except IntegrityError:

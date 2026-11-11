@@ -1,3 +1,4 @@
+import json
 import os
 import tempfile
 import unittest
@@ -9,7 +10,7 @@ os.environ["DATABASE_URL"] = "sqlite:///" + os.path.join(_tmp.name, "test.db").r
 os.environ["SECRET_KEY"] = "test"
 
 from app import app  # noqa: E402
-from models import Customer, User, db  # noqa: E402
+from models import Customer, Quotation, User, db  # noqa: E402
 
 
 # base class buat semua test: siapkan db kosong + login sebagai admin
@@ -153,6 +154,83 @@ class UserMasterTest(MasterTest):
 
         self.client.post(f"/master/users/{user.id}/toggle")
         self.assertFalse(db.session.get(User, user.id).active)
+
+
+class QuotationDraftTest(MasterTest):
+    # helper: isi form penawaran
+    def draft_data(self, **extra):
+        data = {
+            "item": "LOCKING BOLT",
+            "qty": "5",
+            "work": "Bubut",
+            "notes": "catatan",
+            "shape": "Rod / Bulat",
+            "diameter": "12",
+            "length": "100",
+            "operators": "2",
+            "design_baru": "on",
+            "material": "ST 42 — Ø12 mm",
+            "proses_nama": ["Bubut", "Milling"],
+            "proses_menit": ["30", "15"],
+            "consumable_nama": ["Coolant"],
+            "consumable_qty": ["2"],
+        }
+        data.update(extra)
+        return data
+
+    # test: simpan draft -> masuk section draft di dashboard, lalu bisa diubah & dihapus
+    def test_simpan_draft_lalu_ubah_dan_hapus(self):
+        self.add_customer("C-001", "PT Maju Jaya")
+        customer = Customer.query.one()
+
+        response = self.client.post(
+            "/form",
+            data=self.draft_data(customer=str(customer.id)),
+            follow_redirects=True,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Draft penawaran disimpan.", response.data)
+
+        quotation = Quotation.query.one()
+        self.assertEqual(quotation.nomor, "DRF-0001")
+        self.assertEqual(quotation.status, "draft")
+        self.assertEqual(quotation.customer.nama, "PT Maju Jaya")
+        self.assertEqual(quotation.qty, 5)
+        self.assertTrue(quotation.design_baru)
+        self.assertEqual(json.loads(quotation.proses)[1], {"nama": "Milling", "menit": 15})
+        self.assertEqual(json.loads(quotation.consumables), [{"nama": "Coolant", "qty": 2}])
+        self.assertEqual(quotation.created_by, "testadmin")
+
+        # section draft muncul di dashboard
+        response = self.client.get("/")
+        self.assertIn(b"DRF-0001", response.data)
+        self.assertIn(b"LOCKING BOLT", response.data)
+
+        # form edit terisi data draft
+        response = self.client.get(f"/form/{quotation.id}")
+        self.assertIn(b"LOCKING BOLT", response.data)
+
+        # ubah draft
+        self.client.post(
+            f"/form/{quotation.id}",
+            data=self.draft_data(item="BOLT BARU", qty="9"),
+            follow_redirects=True,
+        )
+        quotation = db.session.get(Quotation, quotation.id)
+        self.assertEqual(quotation.item, "BOLT BARU")
+        self.assertEqual(quotation.qty, 9)
+        self.assertEqual(quotation.updated_by, "testadmin")
+
+        # hapus draft -> hilang dari dashboard
+        self.client.post(f"/form/{quotation.id}/delete", follow_redirects=True)
+        self.assertEqual(Quotation.query.count(), 0)
+        self.assertNotIn(b"DRF-0001", self.client.get("/").data)
+
+    # test: draft tanpa item tetap boleh disimpan (draft boleh setengah jadi)
+    def test_draft_boleh_kosong(self):
+        response = self.client.post("/form", data={}, follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(Quotation.query.count(), 1)
 
 
 class AuthTest(MasterTest):

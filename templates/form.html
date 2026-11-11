@@ -1,161 +1,177 @@
-{# halaman form penawaran baru, dirender dari route 'form' di app.py #}
+{# halaman form penawaran baru / edit draft, dirender dari route 'form', 'form_save' & 'form_edit' di app.py #}
 {% extends 'base.html' %}
 
-{% block title %}Penawaran Baru · ERP Workshop{% endblock %}
+{% block title %}{{ 'Edit Draft' if quotation else 'Penawaran Baru' }} · ERP Workshop{% endblock %}
 
 {% block content %}
   <a class="backlink" href="{{ url_for('index') }}">← Kembali ke penawaran</a>
 
   <div class="page-head">
     <div>
-      <p class="eyebrow">Penawaran baru</p>
-      <h1>Hitung Penawaran</h1>
+      <p class="eyebrow">{{ 'Draft' if quotation else 'Penawaran baru' }}</p>
+      <h1>{{ 'Edit Draft ' ~ quotation.nomor if quotation else 'Hitung Penawaran' }}</h1>
       <p class="muted">Isi yang manual, sisanya dihitung otomatis mengikuti rumus workshop.</p>
     </div>
   </div>
 
-  <div class="layout">
-    <div class="stack">
+  {# POST ke route 'form_save' (baru) atau 'form_edit' (draft yang sudah ada) #}
+  <form method="post" action="{{ url_for('form_edit', quotation_id=quotation.id) if quotation else url_for('form_save') }}">
+    <div class="layout">
+      <div class="stack">
 
-      <section class="card">
-        <h2>Informasi penawaran</h2>
-        <div class="grid">
-          <div class="field">
-            <label for="sales">Sales</label>
-            <input id="sales" value="Rina Sales" disabled>
+        <section class="card">
+          <h2>Informasi penawaran</h2>
+          <div class="grid">
+            <div class="field">
+              <label for="sales">Sales</label>
+              <input id="sales" value="{{ g.user.name }}" disabled>
+            </div>
+            <div class="field">
+              <label for="customer">Customer</label>
+              <select id="customer" name="customer">
+                <option value="">— pilih customer —</option>
+                {# dropdown customer diisi dari route (variabel customers, cuma yang aktif) #}
+                {% for customer in customers %}
+                  <option value="{{ customer.id }}" {{ 'selected' if customer.id == values.customer_id }}>{{ customer.kode }} — {{ customer.nama }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="field span-2">
+              <label for="item">Nama item</label>
+              <input id="item" name="item" maxlength="150" value="{{ values.item }}" placeholder="Contoh: LOCKING BOLT">
+              <p class="hint">Item baru otomatis masuk Master Item.</p>
+            </div>
+            <div class="field">
+              <label for="qty">Jumlah item</label>
+              <input id="qty" name="qty" type="number" min="0" value="{{ values.qty }}">
+            </div>
+            <div class="field">
+              <label for="work">Jenis pekerjaan</label>
+              <select id="work" name="work">
+                {% for option in proses_options %}
+                  <option {{ 'selected' if option == values.work }}>{{ option }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="field span-2">
+              <label for="notes">Catatan</label>
+              <textarea id="notes" name="notes" rows="2" placeholder="Opsional">{{ values.notes }}</textarea>
+            </div>
           </div>
-          <div class="field">
-            <label for="customer">Customer</label>
-            <select id="customer" name="customer">
-              <option value="">— pilih customer —</option>
-              {# dropdown customer diisi dari route 'form' (variabel customers, cuma yang aktif) #}
-              {% for customer in customers %}
-                <option value="{{ customer.id }}">{{ customer.kode }} — {{ customer.nama }}</option>
-              {% endfor %}
-            </select>
-          </div>
-          <div class="field span-2">
-            <label for="item">Nama item</label>
-            <input id="item" placeholder="Contoh: LOCKING BOLT">
-            <p class="hint">Item baru otomatis masuk Master Item.</p>
-          </div>
-          <div class="field">
-            <label for="qty">Jumlah item</label>
-            <input id="qty" type="number" value="0">
-          </div>
-          <div class="field">
-            <label for="work">Jenis pekerjaan</label>
-            <select id="work">
-              <option>Bubut</option>
-              <option>Milling</option>
-              <option>Fabrication</option>
-            </select>
-          </div>
-          <div class="field span-2">
-            <label for="notes">Catatan</label>
-            <textarea id="notes" rows="2" placeholder="Opsional"></textarea>
-          </div>
-        </div>
-      </section>
+        </section>
 
-      <section class="card">
-        <h2>Proses &amp; dimensi</h2>
-        <div class="grid">
-          <div class="field">
-            <label for="shape">Bentuk</label>
-            <select id="shape">
-              <option>Rod / Bulat</option>
-              <option>Block</option>
-              <option>Plate</option>
-            </select>
+        <section class="card">
+          <h2>Proses &amp; dimensi</h2>
+          <div class="grid">
+            <div class="field">
+              <label for="shape">Bentuk</label>
+              <select id="shape" name="shape">
+                {% for option in ('Rod / Bulat', 'Block', 'Plate') %}
+                  <option {{ 'selected' if option == values.shape }}>{{ option }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="field">
+              <label for="diameter">Diameter (mm)</label>
+              <input id="diameter" name="diameter" type="number" min="0" value="{{ values.diameter }}">
+            </div>
+            <div class="field">
+              <label for="length">Panjang (mm)</label>
+              <input id="length" name="length" type="number" min="0" value="{{ values.length }}">
+            </div>
+            <div class="field">
+              <label for="operators">Jumlah operator</label>
+              <input id="operators" name="operators" type="number" min="0" value="{{ values.operators }}">
+            </div>
+            <div class="field span-2">
+              <label class="check"><input type="checkbox" name="design_baru" {{ 'checked' if values.design_baru }}> <span>Design baru <small class="muted">(estimasi design 5% dari biaya bersih)</small></span></label>
+            </div>
           </div>
-          <div class="field">
-            <label for="diameter">Diameter (mm)</label>
-            <input id="diameter" type="number" value="0">
-          </div>
-          <div class="field">
-            <label for="length">Panjang (mm)</label>
-            <input id="length" type="number" value="0">
-          </div>
-          <div class="field">
-            <label for="operators">Jumlah operator</label>
-            <input id="operators" type="number" value="0">
-          </div>
-          <div class="field span-2">
-            <label class="check"><input type="checkbox"> <span>Design baru <small class="muted">(estimasi design 5% dari biaya bersih)</small></span></label>
-          </div>
-        </div>
 
-        <div class="table-wrap" style="margin-top:18px">
-          <table class="table">
-            <thead><tr><th>Proses</th><th class="num">Estimasi waktu (menit)</th></tr></thead>
-            <tbody>
-              <tr><td><select><option>Bubut</option><option>Milling</option><option>Drilling</option></select></td><td class="num"><input type="number" value="0" style="max-width:120px; text-align:right"></td></tr>
-              <tr><td><select><option>Milling</option><option>Bubut</option><option>Grinding</option></select></td><td class="num"><input type="number" value="0" style="max-width:120px; text-align:right"></td></tr>
-              <tr><td><select><option>Drilling</option><option>Bubut</option><option>—</option></select></td><td class="num"><input type="number" value="0" style="max-width:120px; text-align:right"></td></tr>
-              <tr><td><select><option>—</option><option>Grinding</option></select></td><td class="num"><input type="number" value="0" style="max-width:120px; text-align:right"></td></tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <section class="card">
-        <h2>Material &amp; consumables</h2>
-        <div class="grid">
-          <div class="field span-2">
-            <label for="material">Material</label>
-            <select id="material">
-              <option>ST 42 — Ø12 mm</option>
-              <option>ST 37 — Ø16 mm</option>
-              <option>Aluminium 6061</option>
-            </select>
+          <div class="table-wrap" style="margin-top:18px">
+            <table class="table">
+              <thead><tr><th>Proses</th><th class="num">Estimasi waktu (menit)</th></tr></thead>
+              <tbody>
+                {% for row in values.proses %}
+                  <tr>
+                    <td>
+                      <select name="proses_nama">
+                        {% for option in proses_options %}
+                          <option {{ 'selected' if option == row.nama }}>{{ option }}</option>
+                        {% endfor %}
+                      </select>
+                    </td>
+                    <td class="num"><input name="proses_menit" type="number" min="0" value="{{ row.menit }}" style="max-width:120px; text-align:right"></td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
           </div>
-        </div>
+        </section>
 
-        <div class="table-wrap" style="margin-top:16px">
-          <table class="table">
-            <thead><tr><th>Consumable</th><th class="num">Jumlah</th><th class="num">Subtotal</th></tr></thead>
-            <tbody>
-              <tr><td>Mata bor HSS Ø12</td><td class="num"><input type="number" value="0" style="max-width:90px; text-align:right"></td><td class="num">Rp 0</td></tr>
-              <tr><td>Coolant</td><td class="num"><input type="number" value="0" style="max-width:90px; text-align:right"></td><td class="num">Rp 0</td></tr>
-            </tbody>
-          </table>
-        </div>
-        <button class="btn btn-ghost btn-sm" type="button" style="margin-top:14px">+ Tambah consumable</button>
-      </section>
+        <section class="card">
+          <h2>Material &amp; consumables</h2>
+          <div class="grid">
+            <div class="field span-2">
+              <label for="material">Material</label>
+              <select id="material" name="material">
+                {% for option in ('ST 42 — Ø12 mm', 'ST 37 — Ø16 mm', 'Aluminium 6061') %}
+                  <option {{ 'selected' if option == values.material }}>{{ option }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+
+          <div class="table-wrap" style="margin-top:16px">
+            <table class="table">
+              <thead><tr><th>Consumable</th><th class="num">Jumlah</th><th class="num">Subtotal</th></tr></thead>
+              <tbody>
+                {% for row in values.consumables %}
+                  <tr>
+                    <td>{{ row.nama }}<input type="hidden" name="consumable_nama" value="{{ row.nama }}"></td>
+                    <td class="num"><input name="consumable_qty" type="number" min="0" value="{{ row.qty }}" style="max-width:90px; text-align:right"></td>
+                    <td class="num">Rp 0</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <button class="btn btn-ghost btn-sm" type="button" style="margin-top:14px">+ Tambah consumable</button>
+        </section>
+      </div>
+
+      <aside class="stack">
+        <section class="card summary">
+          <div class="card-head">
+            <h2>Estimasi</h2>
+            <span class="badge draft">Draft</span>
+          </div>
+          <dl class="summary-list">
+            <div><dt>Tenaga kerja</dt><dd>Rp 0</dd></div>
+            <div><dt>Listrik</dt><dd>Rp 0</dd></div>
+            <div><dt>Material</dt><dd>Rp 0</dd></div>
+            <div><dt>Consumables</dt><dd>Rp 0</dd></div>
+            <div><dt>Depresiasi mesin</dt><dd>Rp 0</dd></div>
+            <div class="sep"></div>
+            <div class="total"><dt>Biaya bersih</dt><dd>Rp 0</dd></div>
+            <div><dt>Biaya satuan</dt><dd>Rp 0</dd></div>
+          </dl>
+
+          <div class="price-box">
+            <div><span>LL1</span><strong>10%</strong></div>
+            <div><span>LL2</span><strong>5%</strong></div>
+            <div><span>RM</span><strong>15%</strong></div>
+            <div class="big"><span>Harga jual</span><strong>Rp 0</strong></div>
+          </div>
+
+          <div class="note-box">Depresiasi bangunan dan biaya design ditampilkan sebagai info, tidak masuk total.</div>
+
+          <div class="form-actions">
+            <button class="btn btn-block" type="submit">Simpan draft</button>
+          </div>
+          <p class="hint" style="margin-top:10px">Harga hanya bisa dicetak setelah disetujui MD.</p>
+        </section>
+      </aside>
     </div>
-
-    <aside class="stack">
-      <section class="card summary">
-        <div class="card-head">
-          <h2>Estimasi</h2>
-          <span class="badge draft">Draft</span>
-        </div>
-        <dl class="summary-list">
-          <div><dt>Tenaga kerja</dt><dd>Rp 0</dd></div>
-          <div><dt>Listrik</dt><dd>Rp 0</dd></div>
-          <div><dt>Material</dt><dd>Rp 0</dd></div>
-          <div><dt>Consumables</dt><dd>Rp 0</dd></div>
-          <div><dt>Depresiasi mesin</dt><dd>Rp 0</dd></div>
-          <div class="sep"></div>
-          <div class="total"><dt>Biaya bersih</dt><dd>Rp 0</dd></div>
-          <div><dt>Biaya satuan</dt><dd>Rp 0</dd></div>
-        </dl>
-
-        <div class="price-box">
-          <div><span>LL1</span><strong>10%</strong></div>
-          <div><span>LL2</span><strong>5%</strong></div>
-          <div><span>RM</span><strong>15%</strong></div>
-          <div class="big"><span>Harga jual</span><strong>Rp 0</strong></div>
-        </div>
-
-        <div class="note-box">Depresiasi bangunan dan biaya design ditampilkan sebagai info, tidak masuk total.</div>
-
-        <div class="form-actions">
-          <button class="btn btn-block" type="button">Simpan draft</button>
-        </div>
-        <p class="hint" style="margin-top:10px">Harga hanya bisa dicetak setelah disetujui MD.</p>
-      </section>
-    </aside>
-  </div>
+  </form>
 {% endblock %}
