@@ -40,6 +40,18 @@ class Customer(db.Model):
     kode_oracle = db.Column("Kode_Oracle", db.String(50))
 
 
+# ini tabel 'materials' (master material)
+class Material(db.Model):
+    __tablename__ = "materials"
+
+    id = db.Column(db.Integer, primary_key=True)
+    nama = db.Column(db.String(100), unique=True, nullable=False)  # nama material, ga boleh dobel
+    jenis = db.Column(db.String(50))  # contoh: Steel, Aluminium
+    satuan = db.Column(db.String(20), nullable=False, default="kg")
+    harga = db.Column(db.Numeric(15, 2), nullable=False, default=0)  # harga per satuan
+    aktif = db.Column(db.Boolean, nullable=False, default=True)
+
+
 # ini tabel 'quotations' (penawaran). status 'draft' = masih disimpan, belum dikirim
 class Quotation(db.Model):
     __tablename__ = "quotations"

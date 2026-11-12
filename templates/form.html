@@ -115,7 +115,7 @@
             <div class="field span-2">
               <label for="material">Material</label>
               <select id="material" name="material">
-                {% for option in ('ST 42 — Ø12 mm', 'ST 37 — Ø16 mm', 'Aluminium 6061') %}
+                {% for option in material_options %}
                   <option {{ 'selected' if option == values.material }}>{{ option }}</option>
                 {% endfor %}
               </select>

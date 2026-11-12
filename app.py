@@ -7,7 +7,7 @@ from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 
 from auth import bp as auth_bp, login_required, roles_required
-from models import ROLES, Customer, Quotation, User, db
+from models import ROLES, Customer, Material, Quotation, User, db
 
 app = Flask(__name__, instance_relative_config=True)
 
@@ -56,10 +56,29 @@ def seed_users():
     db.session.commit()
 
 
+# material awal (contoh), diisi cuma kalau tabel materials masih kosong
+DEFAULT_MATERIALS = (
+    ("ST 42 — Ø12 mm", "Steel", "kg", 15000),
+    ("ST 37 — Ø16 mm", "Steel", "kg", 14500),
+    ("Aluminium 6061", "Aluminium", "kg", 55000),
+    ("Stainless SUS 304", "Stainless", "kg", 48000),
+    ("Brass C3604", "Brass", "kg", 120000),
+)
+
+
+def seed_materials():
+    if Material.query.first() is not None:
+        return
+    for nama, jenis, satuan, harga in DEFAULT_MATERIALS:
+        db.session.add(Material(nama=nama, jenis=jenis, satuan=satuan, harga=harga))
+    db.session.commit()
+
+
 # dijalankan sekali saat app start: bikin tabel (kalau belum ada) + seed user
 with app.app_context():
     db.create_all()
     seed_users()
+    seed_materials()
 
 
 # halaman utama (dashboard penawaran + section draft) -> templates/index.html
@@ -206,7 +225,16 @@ def _render_quotation_form(values, quotation=None, errors=()):
         values=values,
         quotation=quotation,
         proses_options=PROSES_OPTIONS,
+        material_options=_material_options(values.get("material")),
     )
+
+
+# daftar nama material aktif buat dropdown form (material lama tetap muncul kalau sudah dipakai)
+def _material_options(current=None):
+    names = [m.nama for m in Material.query.filter_by(aktif=True).order_by(Material.nama)]
+    if current and current not in names:
+        names.append(current)
+    return names
 
 
 # halaman form penawaran baru -> templates/form.html
@@ -279,6 +307,82 @@ def master():
 
 
 # ---------------------------------------------------------------------------
+# Master material -> templates/master_materials.html
+# ---------------------------------------------------------------------------
+def _material_form(form):
+    try:
+        harga = Decimal((form.get("harga") or "0").strip() or "0")
+    except InvalidOperation:
+        harga = None
+    return {
+        "nama": (form.get("nama") or "").strip(),
+        "jenis": (form.get("jenis") or "").strip(),
+        "satuan": (form.get("satuan") or "").strip() or "kg",
+        "harga": harga,
+    }
+
+
+def _material_errors(data, material_id=None):
+    errors = []
+    if not data["nama"]:
+        errors.append("Nama material wajib diisi.")
+    elif len(data["nama"]) > 100 or len(data["jenis"]) > 50 or len(data["satuan"]) > 20:
+        errors.append("Isian material terlalu panjang.")
+    else:
+        dup = Material.query.filter(func.lower(Material.nama) == data["nama"].lower())
+        if material_id:
+            dup = dup.filter(Material.id != material_id)
+        if dup.first():
+            errors.append("Nama material sudah ada.")
+    if data["harga"] is None or data["harga"] < 0:
+        errors.append("Harga harus berupa angka >= 0.")
+    return errors
+
+
+@app.get('/master/materials')
+@roles_required("admin")
+def materials():
+    items = Material.query.order_by(Material.nama).all()
+    edit = db.session.get(Material, request.args.get("edit", type=int) or 0)
+    return render_template('master_materials.html', items=items, edit=edit)
+
+
+@app.post('/master/materials/save')
+@roles_required("admin")
+def material_save():
+    material_id = request.form.get("id", type=int)
+    material = db.session.get(Material, material_id) if material_id else None
+    data = _material_form(request.form)
+    errors = _material_errors(data, material.id if material else None)
+    if errors:
+        for error in errors:
+            flash(error, "error")
+        return redirect(url_for("materials", edit=material_id) if material_id else url_for("materials"))
+    if material is None:
+        material = Material()
+        db.session.add(material)
+    material.nama, material.jenis = data["nama"], data["jenis"]
+    material.satuan, material.harga = data["satuan"], data["harga"]
+    try:
+        db.session.commit()
+        flash("Material disimpan.", "success")
+    except IntegrityError:
+        db.session.rollback()
+        flash("Nama material sudah ada.", "error")
+    return redirect(url_for("materials"))
+
+
+@app.post('/master/materials/<int:material_id>/toggle')
+@roles_required("admin")
+def material_toggle(material_id):
+    material = db.get_or_404(Material, material_id)
+    material.aktif = not material.aktif
+    db.session.commit()
+    flash(f"Material {'diaktifkan' if material.aktif else 'dinonaktifkan'}.", "success")
+    return redirect(url_for("materials"))
+
+
+# ---------------------------------------------------------------------------
 # Master customer
 # form-nya ada di templates/master_customers.html & customer_form.html
 # ---------------------------------------------------------------------------
@@ -297,7 +401,6 @@ CUSTOMER_FIELDS = {
     "other_bayar": ("Other bayar", 100),
     "company": ("Company", 100),
     "bu": ("BU", 50),
-    "kode_oracle": ("Kode Oracle", 50),
 }
 
 

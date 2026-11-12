@@ -1,0 +1,77 @@
+{# halaman master material, dirender dari route 'materials' di app.py #}
+{% extends 'base.html' %}
+
+{% block title %}Master Material · ERP Workshop{% endblock %}
+
+{% block content %}
+  <div class="page-head">
+    <div>
+      <p class="eyebrow">Master data</p>
+      <h1>Material</h1>
+      <p class="muted">Data nonaktif tetap tersimpan untuk histori, tapi tidak muncul di form baru.</p>
+    </div>
+  </div>
+
+  <nav class="tabs">
+    <a class="tab" href="{{ url_for('master') }}">Proses</a>
+    <a class="tab active" href="{{ url_for('materials') }}">Material</a>
+    <a class="tab" href="{{ url_for('master') }}">Consumables</a>
+    <a class="tab" href="{{ url_for('master') }}">Jenis pekerjaan</a>
+    <a class="tab" href="{{ url_for('customers') }}">Customer</a>
+    <a class="tab" href="{{ url_for('users') }}">User</a>
+  </nav>
+
+  <div class="stack">
+    <section class="card">
+      <h2>{{ 'Ubah material' if edit else 'Tambah material' }}</h2>
+      <form method="post" action="{{ url_for('material_save') }}">
+        {% if edit %}<input type="hidden" name="id" value="{{ edit.id }}">{% endif %}
+        <div class="grid">
+          <div class="field"><label for="nama">Nama material</label>
+            <input id="nama" name="nama" required maxlength="100" value="{{ edit.nama if edit }}" placeholder="Contoh: ST 42 — Ø12 mm"></div>
+          <div class="field"><label for="jenis">Jenis</label>
+            <input id="jenis" name="jenis" maxlength="50" value="{{ (edit.jenis or '') if edit }}" placeholder="Steel"></div>
+          <div class="field"><label for="satuan">Satuan</label>
+            <input id="satuan" name="satuan" maxlength="20" value="{{ edit.satuan if edit else 'kg' }}"></div>
+          <div class="field"><label for="harga">Harga / satuan</label>
+            <input id="harga" name="harga" type="number" min="0" step="any" value="{{ edit.harga|int if edit else '' }}" placeholder="15000"></div>
+        </div>
+        <div class="form-actions">
+          {% if edit %}<a class="btn btn-ghost" href="{{ url_for('materials') }}">Batal</a>{% endif %}
+          <button class="btn" type="submit">{{ 'Simpan' if edit else 'Tambah' }}</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="card table-card">
+      <div class="card-head" style="padding:20px 22px 0; margin-bottom:14px">
+        <h2 style="margin:0">Daftar material <small class="muted">{{ items|length }} data</small></h2>
+      </div>
+      <div class="table-wrap">
+        <table class="table">
+          <thead><tr><th>Nama</th><th>Jenis</th><th>Satuan</th><th class="num">Harga / satuan</th><th>Status</th><th class="row-action">Aksi</th></tr></thead>
+          <tbody>
+            {% for item in items %}
+              <tr class="{{ 'row-inactive' if not item.aktif }}">
+                <td class="strong">{{ item.nama }}</td>
+                <td>{{ item.jenis or '—' }}</td>
+                <td>{{ item.satuan }}</td>
+                <td class="num">Rp {{ "{:,.0f}".format(item.harga or 0) }}</td>
+                <td><span class="badge {{ 'approved' if item.aktif else 'draft' }}">{{ 'Aktif' if item.aktif else 'Nonaktif' }}</span></td>
+                <td class="row-action">
+                  <a class="btn btn-ghost btn-sm" href="{{ url_for('materials', edit=item.id) }}">Ubah</a>
+                  <form method="post" action="{{ url_for('material_toggle', material_id=item.id) }}"
+                        data-confirm="{{ 'Nonaktifkan material ini?' if item.aktif else 'Aktifkan material ini?' }}" style="display:inline">
+                    <button class="btn btn-ghost btn-sm" type="submit">{{ 'Nonaktifkan' if item.aktif else 'Aktifkan' }}</button>
+                  </form>
+                </td>
+              </tr>
+            {% else %}
+              <tr><td class="empty" colspan="6">Belum ada data material.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+{% endblock %}
