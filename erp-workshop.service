@@ -1,0 +1,14 @@
+[Unit]
+Description=ERP Workshop (Flask, port 8099)
+After=network.target
+
+[Service]
+Type=simple
+User=budianto
+WorkingDirectory=/home/budianto/ui-ux-projek
+ExecStart=/home/budianto/ui-ux-projek/.venv/bin/python /home/budianto/ui-ux-projek/run_produksi.py
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
