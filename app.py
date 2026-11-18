@@ -1,118 +1,203 @@
 import json
 import os
+import sys
+from datetime import datetime
 from decimal import Decimal, InvalidOperation
 
-from flask import Flask, flash, g, redirect, render_template, request, url_for
-from sqlalchemy import func
-from sqlalchemy.exc import IntegrityError
+from flask import Flask, abort, flash, g, redirect, render_template, request, session
+from werkzeug.security import check_password_hash, generate_password_hash
 
-from auth import bp as auth_bp, login_required, roles_required
-from models import ROLES, Customer, Quotation, User, db
-
-app = Flask(__name__, instance_relative_config=True)
-
-# --- koneksi database ---
-# urutan prioritas (yang menang):
-#   1. env DATABASE_URL (kalau di-set, misal dari test_master.py)
-#   2. instance/config.py  (meng-override ke MySQL server)
-#   3. default sqlite file instance/ui_ux.db
-app.config.update(
-    SECRET_KEY=os.environ.get("SECRET_KEY", "dev-ui-ux"),
-    SQLALCHEMY_DATABASE_URI=os.environ.get(
-        "DATABASE_URL",
-        "sqlite:///" + os.path.join(app.instance_path, "ui_ux.db").replace("\\", "/"),
-    ),
-    SQLALCHEMY_TRACK_MODIFICATIONS=False,
+sys.path.append("./Model")
+from model_workshop import ROLES, M_Workshop
+from workshop import (
+    BENTUK,
+    CONSUMABLES,
+    JENIS,
+    MATERIALS,
+    PROSES,
+    hitung,
+    muat_master,
+    seed_master,
 )
-app.config.from_pyfile("config.py", silent=True)  # baca config tambahan dari instance/config.py
-if os.environ.get("DATABASE_URL"):
-    app.config["SQLALCHEMY_DATABASE_URI"] = os.environ["DATABASE_URL"]
-os.makedirs(app.instance_path, exist_ok=True)
-db.init_app(app)  # pasang konektor db (dari models.py) ke app
-app.register_blueprint(auth_bp)  # daftarkan blueprint login/logout dari auth.py
 
-# user default yang dibuat pertama kali (username, nama, role, password)
+application = Flask(__name__)
+application.secret_key = os.environ.get("SECRET_KEY", "dev-ui-ux")
+
 DEFAULT_USERS = (
     ("admin", "Admin Workshop", "admin", "admin123"),
     ("sales", "Rina Sales", "sales", "sales123"),
     ("approver", "Budi Approver", "approver", "approver123"),
 )
 
+LABEL_STATUS = {
+    "draft": "Draft",
+    "submitted": "Menunggu approval",
+    "approved": "Disetujui",
+    "rejected": "Ditolak",
+}
 
-# isi user default kalau tabel masih kosong / ga ada admin aktif
+
+# waktu sekarang buat kolom created_at / updated_at
+def tglwaktu():
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+# format rupiah di template: {{ h.tk|rupiah }}
+@application.template_filter("rupiah")
+def rupiah(value):
+    return "Rp {:,.0f}".format(value or 0).replace(",", ".")
+
+
+application.jinja_env.globals["hitung"] = hitung
+application.jinja_env.globals["LABEL_STATUS"] = LABEL_STATUS
+
+
+# isi user awal kalau tabel users masih kosong
 def seed_users():
-    if User.query.first() is None:
-        defaults = DEFAULT_USERS
-    elif User.query.filter_by(role="admin", active=True).first() is None:
-        defaults = (DEFAULT_USERS[0],)
-    else:
+    m = M_Workshop()
+    users = m.get_users()
+    if not users:
+        for username, name, role, password in DEFAULT_USERS:
+            m.add_user(name, username, role, generate_password_hash(password))
+    elif not any(u.role == "admin" and u.active for u in users):
+        username, name, role, password = DEFAULT_USERS[0]
+        if m.get_datauser(username) is None:
+            m.add_user(name, username, role, generate_password_hash(password))
+
+
+seed_users()
+seed_master()
+muat_master()
+
+
+# isi g.user tiap request dari session
+@application.before_request
+def load_user():
+    if request.endpoint == "static":
         return
-    for username, name, role, password in defaults:
-        if User.query.filter_by(username=username).first() is not None:
-            continue
-        user = User(username=username, name=name, role=role, active=True)
-        user.set_password(password)  # hash password dulu
-        db.session.add(user)
-    db.session.commit()
+    id_user = session.get("id_user")
+    user = M_Workshop().get_user(id_user) if id_user else None
+    g.user = user if user is not None and user.active else None
 
 
-# dijalankan sekali saat app start: bikin tabel (kalau belum ada) + seed user
-with app.app_context():
-    db.create_all()
-    seed_users()
+# halaman wajib login
+def wajib_login(fungsi):
+    def wrapper(*args, **kwargs):
+        if g.user is None:
+            return redirect("/login?next=" + request.full_path)
+        return fungsi(*args, **kwargs)
+
+    wrapper.__name__ = fungsi.__name__
+    return wrapper
 
 
-# halaman utama (dashboard penawaran + section draft) -> templates/index.html
-@app.route('/')
-@login_required
-def index():
-    # draft = penawaran yang belum dikirim; section draft di halaman ini
-    drafts = (
-        Quotation.query.filter_by(status="draft")
-        .order_by(Quotation.updated_at.desc())
-        .all()
-    )
-    submitted = (
-        Quotation.query.filter(Quotation.status != "draft")
-        .order_by(Quotation.updated_at.desc())
-        .all()
-    )
-    return render_template('index.html', drafts=drafts, submitted=submitted)
+# halaman wajib login + role tertentu
+def wajib_role(*roles):
+    def dekorator(fungsi):
+        def wrapper(*args, **kwargs):
+            if g.user is None:
+                return redirect("/login?next=" + request.full_path)
+            if g.user.role not in roles:
+                flash("Anda tidak punya akses ke halaman ini.", "error")
+                return redirect("/")
+            return fungsi(*args, **kwargs)
+
+        wrapper.__name__ = fungsi.__name__
+        return wrapper
+
+    return dekorator
 
 
-# halaman detail penawaran -> templates/detail.html
-@app.route('/detail')
-@login_required
-def detail():
-    return render_template('detail.html')
-
-
-# ---------------------------------------------------------------------------
-# Penawaran (draft dulu, belum ada proses kirim/approval)
-# form-nya ada di templates/form.html
-# ---------------------------------------------------------------------------
-
-
-# pilihan dropdown proses & nama consumable default di form penawaran
-PROSES_OPTIONS = ("Bubut", "Milling", "Drilling", "Grinding", "—")
-CONSUMABLE_NAMES = ("Mata bor HSS Ø12", "Coolant")
-
-
-# angka dari input form; kosong/ngawur dianggap 0 dan tidak boleh negatif
-def _int(value):
+# angka dari form; kosong/ngawur dianggap 0
+def angka(nilai):
     try:
-        return max(int(value or 0), 0)
+        return max(int(nilai or 0), 0)
     except ValueError:
         return 0
 
 
-# pasangkan dua list input (nama + nilai) jadi list dict buat disimpan sebagai JSON
-def _json_rows(names, values, value_key):
-    return [
-        {"nama": (nama or "").strip(), value_key: _int(value)}
-        for nama, value in zip(names, values)
-    ]
+# persen di form (5) -> pecahan (0.05)
+def persen(nilai):
+    try:
+        return max(float(nilai or 0), 0) / 100
+    except ValueError:
+        return 0
 
+
+# ---------------------------- login ----------------------------
+
+
+@application.route("/login", methods=["GET", "POST"])
+def login():
+    if g.user is not None:
+        return redirect("/")
+
+    username = ""
+    if request.method == "POST":
+        username = (request.form.get("username") or "").strip()
+        password = request.form.get("password") or ""
+        user = M_Workshop().get_datauser(username)
+        if user is None or not user.active or not check_password_hash(user.password_hash, password):
+            flash("Username atau password salah.", "error")
+            return render_template("login.html", username=username), 401
+
+        session.clear()
+        session["logged_in"] = True
+        session["id_user"] = user.id
+        session["nama_user"] = user.name
+        session["role"] = user.role
+        next_url = request.args.get("next") or request.form.get("next") or "/"
+        if not next_url.startswith("/") or next_url.startswith("//"):
+            next_url = "/"
+        return redirect(next_url)
+
+    return render_template("login.html", username=username)
+
+
+@application.route("/logout", methods=["POST"])
+@wajib_login
+def logout():
+    session.clear()
+    flash("Anda sudah keluar.", "success")
+    return redirect("/login")
+
+
+# ---------------------------- dashboard ----------------------------
+
+
+@application.route("/")
+@wajib_login
+def index():
+    m = M_Workshop()
+    drafts = m.get_quotations("draft")
+    submitted = m.get_quotations("kirim")
+    menunggu = [q for q in submitted if q.status == "submitted"]
+    disetujui = [q for q in submitted if q.status == "approved"]
+    return render_template(
+        "index.html",
+        drafts=drafts,
+        submitted=submitted,
+        menunggu=menunggu,
+        disetujui=disetujui,
+        nilai_menunggu=sum(hitung(q)["harga"] for q in menunggu),
+        nilai_disetujui=sum(hitung(q)["harga"] for q in disetujui),
+    )
+
+
+@application.route("/detailpenawaran/<int:quotation_id>")
+@wajib_login
+def detail(quotation_id):
+    quotation = M_Workshop().get_quotation(quotation_id)
+    if quotation is None:
+        abort(404)
+    return render_template(
+        "detail.html",
+        quotation=quotation,
+        boleh_putus=g.user.role in ("admin", "approver"),
+    )
+
+
+# ---------------------------- penawaran ----------------------------
 
 # isi awal form penawaran baru
 def _empty_quotation():
@@ -120,21 +205,28 @@ def _empty_quotation():
         "customer_id": None,
         "item": "",
         "qty": 0,
-        "work": "Bubut",
+        "work": JENIS[0],
         "notes": "",
-        "shape": "Rod / Bulat",
+        "shape": BENTUK[0],
         "diameter": 0,
         "length": 0,
+        "tebal": 0,
+        "lebar": 0,
         "operators": 0,
         "design_baru": False,
-        "material": "ST 42 — Ø12 mm",
-        "proses": [{"nama": p, "menit": 0} for p in PROSES_OPTIONS[:4]],
-        "consumables": [{"nama": n, "qty": 0} for n in CONSUMABLE_NAMES],
+        "material": MATERIALS[0][0],
+        "ll1": 0.05,
+        "ll2": 0.01,
+        "rm": 0.10,
+        "proses": [{"nama": "", "menit": 0} for _ in range(4)],
+        "consumables": [{"nama": "", "qty": 0} for _ in range(2)],
     }
 
 
-# isi form dari draft yang sudah tersimpan (halaman edit)
+# isi form dari penawaran yang sudah tersimpan
 def _quotation_values(quotation):
+    proses = json.loads(quotation.proses or "[]") or _empty_quotation()["proses"]
+    proses += [{"nama": "", "menit": 0}] * (4 - len(proses))
     return {
         "customer_id": quotation.customer_id,
         "item": quotation.item or "",
@@ -144,30 +236,49 @@ def _quotation_values(quotation):
         "shape": quotation.shape or "",
         "diameter": quotation.diameter,
         "length": quotation.length,
+        "tebal": quotation.tebal,
+        "lebar": quotation.lebar,
         "operators": quotation.operators,
         "design_baru": quotation.design_baru,
         "material": quotation.material or "",
-        "proses": json.loads(quotation.proses or "[]") or _empty_quotation()["proses"],
+        "ll1": quotation.ll1,
+        "ll2": quotation.ll2,
+        "rm": quotation.rm,
+        "proses": proses,
         "consumables": json.loads(quotation.consumables or "[]")
         or _empty_quotation()["consumables"],
     }
 
 
-# ambil input form penawaran jadi dict (customer dicek ada di DB)
+# pasangkan dua list input (nama + nilai) jadi list dict
+def _json_rows(names, values, value_key):
+    return [
+        {"nama": (nama or "").strip(), value_key: angka(value)}
+        for nama, value in zip(names, values)
+    ]
+
+
+# ambil input form penawaran
 def _quotation_form(form):
-    customer = db.session.get(Customer, _int(form.get("customer")))
+    id_customer = angka(form.get("customer"))
+    customer = M_Workshop().get_customer(id_customer) if id_customer else None
     return {
         "customer_id": customer.id if customer else None,
         "item": (form.get("item") or "").strip(),
-        "qty": _int(form.get("qty")),
+        "qty": angka(form.get("qty")),
         "work": form.get("work") or "",
         "notes": (form.get("notes") or "").strip(),
         "shape": form.get("shape") or "",
-        "diameter": _int(form.get("diameter")),
-        "length": _int(form.get("length")),
-        "operators": _int(form.get("operators")),
+        "diameter": angka(form.get("diameter")),
+        "length": angka(form.get("length")),
+        "tebal": angka(form.get("tebal")),
+        "lebar": angka(form.get("lebar")),
+        "operators": angka(form.get("operators")),
         "design_baru": form.get("design_baru") == "on",
         "material": form.get("material") or "",
+        "ll1": persen(form.get("ll1")),
+        "ll2": persen(form.get("ll2")),
+        "rm": persen(form.get("rm")),
         "proses": _json_rows(
             form.getlist("proses_nama"), form.getlist("proses_menit"), "menit"
         ),
@@ -177,26 +288,41 @@ def _quotation_form(form):
     }
 
 
-# salin dict hasil _quotation_form ke record
-def _apply_quotation(quotation, values):
-    for field, value in values.items():
-        if field in ("proses", "consumables"):
-            value = json.dumps(value)
-        setattr(quotation, field, value)
+# ubah dict form jadi kolom tabel quotations
+def _quotation_db(values):
+    return {
+        "customer_id": values["customer_id"],
+        "item": values["item"],
+        "qty": values["qty"],
+        "work": values["work"],
+        "notes": values["notes"],
+        "shape": values["shape"],
+        "diameter": values["diameter"],
+        "length": values["length"],
+        "tebal": values["tebal"],
+        "lebar": values["lebar"],
+        "operators": values["operators"],
+        "design_baru": 1 if values["design_baru"] else 0,
+        "material": values["material"],
+        "ll1": values["ll1"],
+        "ll2": values["ll2"],
+        "rm": values["rm"],
+        "proses": json.dumps(values["proses"]),
+        "consumables": json.dumps(values["consumables"]),
+    }
 
 
-# customer aktif buat dropdown "Customer" di form
+# customer aktif buat dropdown
 def _form_customers():
-    return (
-        Customer.query.filter(
-            Customer.dihapus.is_(False), Customer.discontinued.is_(False)
-        )
-        .order_by(Customer.nama)
-        .all()
-    )
+    return M_Workshop().get_customers(True)
 
 
-# isi ulang form + pesan error (dipakai route simpan)
+# nama item yang pernah diinput (saran di form)
+def _form_items():
+    return M_Workshop().get_item_unik()
+
+
+# isi ulang form + pesan error
 def _render_quotation_form(values, quotation=None, errors=()):
     for error in errors:
         flash(error, "error")
@@ -205,86 +331,284 @@ def _render_quotation_form(values, quotation=None, errors=()):
         customers=_form_customers(),
         values=values,
         quotation=quotation,
-        proses_options=PROSES_OPTIONS,
+        jenis=JENIS,
+        bentuk=BENTUK,
+        proses_options=tuple(PROSES),
+        materials=MATERIALS,
+        consumables=tuple(CONSUMABLES),
+        items=_form_items(),
     )
 
 
-# halaman form penawaran baru -> templates/form.html
-@app.route('/form')
-@roles_required("admin", "sales")
-def form():
-    return _render_quotation_form(_empty_quotation())
-
-
-# simpan penawaran sebagai draft, lalu buka lagi dalam mode edit
-@app.post('/form')
-@roles_required("admin", "sales")
-def form_save():
-    values = _quotation_form(request.form)
+# validasi form penawaran
+def _quotation_errors(values):
+    errors = []
     if len(values["item"]) > 150:
-        return _render_quotation_form(values, errors=("Nama item maksimal 150 karakter.",))
-    quotation = Quotation(
-        status="draft",
-        sales=g.user.name,
-        created_by=g.user.username,
-        updated_by=g.user.username,
+        errors.append("Nama item maksimal 150 karakter.")
+    if values["rm"] >= 1:
+        errors.append("RM harus di bawah 100%.")
+    return errors
+
+
+@application.route("/formpenawaran", methods=["GET", "POST"])
+@wajib_role("admin", "sales")
+def form():
+    if request.method == "GET":
+        return _render_quotation_form(_empty_quotation())
+
+    values = _quotation_form(request.form)
+    errors = _quotation_errors(values)
+    if errors:
+        return _render_quotation_form(values, errors=errors)
+
+    m = M_Workshop()
+    id, nomor = m.get_nomor_baru()
+    data = _quotation_db(values)
+    data.update(
+        {
+            "id": id,
+            "nomor": nomor,
+            "status": "draft",
+            "sales": g.user.name,
+            "created_by": g.user.username,
+            "updated_by": g.user.username,
+            "created_at": tglwaktu(),
+            "updated_at": tglwaktu(),
+        }
     )
-    _apply_quotation(quotation, values)
-    db.session.add(quotation)
-    db.session.flush()  # dapat id dulu buat nomor draft
-    quotation.nomor = f"DRF-{quotation.id:04d}"
-    db.session.commit()
+    pesan = m.add_quotation(data)
+    if pesan != "":
+        return _render_quotation_form(values, errors=(pesan,))
     flash("Draft penawaran disimpan.", "success")
-    return redirect(url_for("form_edit", quotation_id=quotation.id))
+    return redirect("/ubahpenawaran/%d" % id)
 
 
-# buka/perbarui draft -> templates/form.html
-@app.route('/form/<int:quotation_id>', methods=["GET", "POST"])
-@roles_required("admin", "sales")
+@application.route("/ubahpenawaran/<int:quotation_id>", methods=["GET", "POST"])
+@wajib_role("admin", "sales")
 def form_edit(quotation_id):
-    quotation = db.get_or_404(Quotation, quotation_id)
+    m = M_Workshop()
+    quotation = m.get_quotation(quotation_id)
+    if quotation is None:
+        abort(404)
     if quotation.status != "draft":
         flash("Penawaran yang sudah dikirim tidak bisa diubah.", "error")
-        return redirect(url_for("index"))
+        return redirect("/")
+
     if request.method == "POST":
         values = _quotation_form(request.form)
-        if len(values["item"]) > 150:
-            return _render_quotation_form(
-                values, quotation, ("Nama item maksimal 150 karakter.",)
-            )
-        _apply_quotation(quotation, values)
-        quotation.updated_by = g.user.username
-        db.session.commit()
+        errors = _quotation_errors(values)
+        if errors:
+            return _render_quotation_form(values, quotation, errors)
+        data = _quotation_db(values)
+        data["updated_by"] = g.user.username
+        data["updated_at"] = tglwaktu()
+        pesan = m.upd_quotation(quotation.id, data)
+        if pesan != "":
+            return _render_quotation_form(values, quotation, (pesan,))
         flash("Draft penawaran diperbarui.", "success")
-        return redirect(url_for("form_edit", quotation_id=quotation.id))
+        return redirect("/ubahpenawaran/%d" % quotation.id)
+
     return _render_quotation_form(_quotation_values(quotation), quotation)
 
 
-# hapus draft dari section draft di dashboard
-@app.post('/form/<int:quotation_id>/delete')
-@roles_required("admin", "sales")
+@application.route("/hapuspenawaran/<int:quotation_id>", methods=["POST"])
+@wajib_role("admin", "sales")
 def form_delete(quotation_id):
-    quotation = db.get_or_404(Quotation, quotation_id)
-    db.session.delete(quotation)
-    db.session.commit()
+    M_Workshop().del_quotation(quotation_id)
     flash("Draft penawaran dihapus.", "success")
-    return redirect(url_for("index"))
+    return redirect("/")
 
 
-# halaman master (tab Proses) -> templates/master.html
-@app.route('/master')
-@roles_required("admin")
+@application.route("/ajukanpenawaran/<int:quotation_id>", methods=["POST"])
+@wajib_role("admin", "sales")
+def form_ajukan(quotation_id):
+    m = M_Workshop()
+    quotation = m.get_quotation(quotation_id)
+    if quotation is not None and quotation.status == "draft":
+        m.upd_status_quotation(quotation.id, "submitted", g.user.username)
+        flash("Penawaran diajukan ke MD.", "success")
+    return redirect("/detailpenawaran/%d" % quotation_id)
+
+
+@application.route("/putuspenawaran/<int:quotation_id>", methods=["POST"])
+@wajib_role("admin", "approver")
+def detail_putus(quotation_id):
+    m = M_Workshop()
+    quotation = m.get_quotation(quotation_id)
+    status = request.form.get("status")
+    if quotation is not None and quotation.status == "submitted" and status in ("approved", "rejected"):
+        m.upd_status_quotation(quotation.id, status, g.user.username)
+        flash(
+            "Penawaran disetujui, harga siap keluar."
+            if status == "approved"
+            else "Penawaran ditolak.",
+            "success",
+        )
+    return redirect("/detailpenawaran/%d" % quotation_id)
+
+
+# ---------------------------- master workshop ----------------------------
+
+MASTER = {
+    "proses": {
+        "judul": "Proses",
+        "kolom": [
+            {"nama": "nama", "label": "Nama proses", "tipe": "text"},
+            {"nama": "kwh", "label": "Daya (kWh)", "tipe": "number"},
+            {"nama": "depresiasi_jam", "label": "Depresiasi / jam", "tipe": "number", "uang": True},
+        ],
+    },
+    "material": {
+        "judul": "Material",
+        "kolom": [
+            {"nama": "nama", "label": "Nama material", "tipe": "text"},
+            {"nama": "bentuk", "label": "Bentuk", "tipe": "select", "sumber": BENTUK},
+            {"nama": "density", "label": "Density (kg/m³)", "tipe": "number"},
+            {"nama": "harga_kg", "label": "Harga / kg", "tipe": "number", "uang": True},
+        ],
+    },
+    "consumable": {
+        "judul": "Consumables",
+        "kolom": [
+            {"nama": "nama", "label": "Nama consumable", "tipe": "text"},
+            {"nama": "harga", "label": "Harga", "tipe": "number", "uang": True},
+        ],
+    },
+    "jenis": {
+        "judul": "Jenis pekerjaan",
+        "kolom": [{"nama": "nama", "label": "Nama jenis pekerjaan", "tipe": "text"}],
+    },
+    "bentuk": {
+        "judul": "Bentuk",
+        "kolom": [{"nama": "nama", "label": "Nama bentuk", "tipe": "text"}],
+    },
+}
+
+
+def _master_conf(kunci):
+    conf = MASTER.get(kunci)
+    if conf is None:
+        abort(404)
+    return conf
+
+
+# data master dari form
+def _master_data(conf, form):
+    data = {"nama": (form.get("nama") or "").strip()}
+    salah = []
+    for kolom in conf["kolom"]:
+        if kolom["nama"] != "nama":
+            try:
+                data[kolom["nama"]] = max(float(form.get(kolom["nama"]) or 0), 0)
+            except ValueError:
+                salah.append(kolom["label"])
+    return data, salah
+
+
+# validasi nama & angka
+def _master_errors(kunci, data, salah, id=0):
+    errors = ["%s harus angka." % label for label in salah]
+    if not data["nama"]:
+        return errors + ["Nama wajib diisi."]
+    if len(data["nama"]) > 100:
+        return errors + ["Nama maksimal 100 karakter."]
+    if M_Workshop().cek_nama_master(kunci, data["nama"], id):
+        errors.append("Nama sudah ada.")
+    return errors
+
+
+def _render_master(kunci, conf, item=None, data=None, errors=()):
+    for error in errors:
+        flash(error, "error")
+    return render_template(
+        "master.html",
+        daftar=MASTER,
+        kunci=kunci,
+        conf=conf,
+        items=M_Workshop().get_master(kunci),
+        item=item,
+        data=data or {},
+    )
+
+
+@application.route("/master")
+@wajib_role("admin")
 def master():
-    return render_template('master.html')
+    return redirect("/masterproses")
 
 
-# ---------------------------------------------------------------------------
-# Master customer
-# form-nya ada di templates/master_customers.html & customer_form.html
-# ---------------------------------------------------------------------------
+@application.route("/master<kunci>")
+@wajib_role("admin")
+def master_list(kunci):
+    conf = _master_conf(kunci)
+    return _render_master(kunci, conf)
 
 
-# field teks customer + batas panjangnya (buat validasi server-side)
+@application.route("/tambahmaster<kunci>", methods=["POST"])
+@wajib_role("admin")
+def master_add(kunci):
+    conf = _master_conf(kunci)
+    data, salah = _master_data(conf, request.form)
+    errors = _master_errors(kunci, data, salah)
+    if errors:
+        return _render_master(kunci, conf, data=data, errors=errors)
+    pesan = M_Workshop().add_master(kunci, data)
+    if pesan != "":
+        return _render_master(kunci, conf, data=data, errors=(pesan,))
+    muat_master()
+    flash("%s ditambahkan." % conf["judul"], "success")
+    return redirect("/master" + kunci)
+
+
+@application.route("/ubahmaster<kunci>/<int:item_id>", methods=["GET", "POST"])
+@wajib_role("admin")
+def master_edit(kunci, item_id):
+    conf = _master_conf(kunci)
+    m = M_Workshop()
+    item = m.get_master_satu(kunci, item_id)
+    if item is None:
+        abort(404)
+    if request.method == "POST":
+        data, salah = _master_data(conf, request.form)
+        errors = _master_errors(kunci, data, salah, item.id)
+        if errors:
+            return _render_master(kunci, conf, item, data, errors)
+        pesan = m.upd_master(kunci, item.id, data)
+        if pesan != "":
+            return _render_master(kunci, conf, item, data, (pesan,))
+        muat_master()
+        flash("%s diperbarui." % conf["judul"], "success")
+        return redirect("/master" + kunci)
+    data = {k["nama"]: getattr(item, k["nama"]) for k in conf["kolom"]}
+    return _render_master(kunci, conf, item, data)
+
+
+@application.route("/aktifmaster<kunci>/<int:item_id>", methods=["POST"])
+@wajib_role("admin")
+def master_toggle(kunci, item_id):
+    conf = _master_conf(kunci)
+    m = M_Workshop()
+    item = m.get_master_satu(kunci, item_id)
+    if item is None:
+        abort(404)
+    m.upd_master_aktif(kunci, item.id, not item.aktif)
+    muat_master()
+    flash("%s %s." % (item.nama, "diaktifkan" if not item.aktif else "dinonaktifkan"), "success")
+    return redirect("/master" + kunci)
+
+
+@application.route("/hapusmaster<kunci>/<int:item_id>", methods=["POST"])
+@wajib_role("admin")
+def master_hapus(kunci, item_id):
+    conf = _master_conf(kunci)
+    M_Workshop().del_master(kunci, item_id)
+    muat_master()
+    flash("%s dihapus." % conf["judul"], "success")
+    return redirect("/master" + kunci)
+
+
+# ---------------------------- master customer ----------------------------
+
 CUSTOMER_FIELDS = {
     "kode": ("Kode", 30),
     "nama": ("Nama", 150),
@@ -300,8 +624,26 @@ CUSTOMER_FIELDS = {
     "kode_oracle": ("Kode Oracle", 50),
 }
 
+KOLOM_CUSTOMER = {
+    "kode": "Kode",
+    "nama": "Nama",
+    "g_ng": "G_NG",
+    "sales": "Sales",
+    "telp": "Telp",
+    "npwp": "NPWP",
+    "top": "TOP",
+    "cara_bayar": "Cara_Bayar",
+    "other_bayar": "Other_Bayar",
+    "company": "Company",
+    "bu": "BU",
+    "kode_oracle": "Kode_Oracle",
+    "alamat": "Alamat",
+    "alamat_tagihan": "Alamat_Tagihan",
+    "limit_kredit": "LimitKredit",
+    "discontinued": "discontinued",
+}
 
-# ambil semua input customer dari form, strip spasi ujung
+
 def _customer_data(form):
     data = {field: (form.get(field) or "").strip() for field in CUSTOMER_FIELDS}
     data["alamat"] = (form.get("alamat") or "").strip()
@@ -311,7 +653,6 @@ def _customer_data(form):
     return data
 
 
-# isi data form dari record customer (halaman edit)
 def _customer_values(customer):
     data = {field: getattr(customer, field) or "" for field in CUSTOMER_FIELDS}
     data["alamat"] = customer.alamat or ""
@@ -321,14 +662,12 @@ def _customer_values(customer):
     return data
 
 
-# data kosong buat halaman tambah
 def _empty_customer():
     data = {field: "" for field in CUSTOMER_FIELDS}
     data.update(alamat="", alamat_tagihan="", limit_kredit="0", discontinued=False)
     return data
 
 
-# limit kredit disimpan sebagai Decimal; None artinya input bukan angka
 def _limit_kredit(value):
     try:
         number = Decimal(value or "0")
@@ -337,25 +676,28 @@ def _limit_kredit(value):
     return number if number.is_finite() else None
 
 
-# validasi customer: batas panjang, kode/nama wajib & unik, limit kredit angka
-def _customer_errors(data, customer_id=None):
+def _customer_db(data):
+    hasil = {KOLOM_CUSTOMER[field]: data[field] for field in KOLOM_CUSTOMER}
+    hasil["discontinued"] = 1 if data["discontinued"] else 0
+    return hasil
+
+
+def _customer_errors(data, id=0):
     errors = []
+    m = M_Workshop()
     for field, (label, max_length) in CUSTOMER_FIELDS.items():
         if len(data[field]) > max_length:
-            errors.append(f"{label} maksimal {max_length} karakter.")
+            errors.append("%s maksimal %d karakter." % (label, max_length))
 
-    for field, label in (("kode", "Kode customer"), ("nama", "Nama customer")):
-        value = data[field]
-        if not value:
-            errors.append(f"{label} wajib diisi.")
-            continue
-        query = Customer.query.filter(
-            func.lower(getattr(Customer, field)) == value.lower()
-        )
-        if customer_id is not None:  # saat edit: kecualikan dirinya sendiri
-            query = query.filter(Customer.id != customer_id)
-        if query.first() is not None:
-            errors.append(f"{label} sudah ada.")
+    if not data["kode"]:
+        errors.append("Kode customer wajib diisi.")
+    elif m.cek_kode_customer(data["kode"], id):
+        errors.append("Kode customer sudah ada.")
+
+    if not data["nama"]:
+        errors.append("Nama customer wajib diisi.")
+    elif m.cek_nama_customer(data["nama"], id):
+        errors.append("Nama customer sudah ada.")
 
     limit = _limit_kredit(data["limit_kredit"])
     if limit is None:
@@ -365,120 +707,90 @@ def _customer_errors(data, customer_id=None):
     return errors
 
 
-# salin data form ke record customer
-def _apply_customer(customer, data):
-    for field in CUSTOMER_FIELDS:
-        setattr(customer, field, data[field])
-    customer.alamat = data["alamat"]
-    customer.alamat_tagihan = data["alamat_tagihan"]
-    customer.limit_kredit = _limit_kredit(data["limit_kredit"])
-    customer.discontinued = data["discontinued"]
-
-
-# halaman daftar customer -> templates/master_customers.html
-@app.get('/master/customers')
-@roles_required("admin")
+@application.route("/mastercustomer")
+@wajib_role("admin")
 def customers():
-    items = (
-        Customer.query.filter(Customer.dihapus.is_(False))
-        .order_by(Customer.nama)
-        .all()
-    )
-    return render_template('master_customers.html', items=items)
+    return render_template("master_customers.html", items=M_Workshop().get_customers())
 
 
-# tambah customer, form di templates/customer_form.html
-@app.route('/master/customers/add', methods=["GET", "POST"])
-@roles_required("admin")
+@application.route("/tambahmastercustomer", methods=["GET", "POST"])
+@wajib_role("admin")
 def customer_add():
     if request.method == "GET":
-        return render_template(
-            "customer_form.html", customer=None, data=_empty_customer()
-        )
+        return render_template("customer_form.html", customer=None, data=_empty_customer())
+
     data = _customer_data(request.form)
     errors = _customer_errors(data)
     if errors:
         for error in errors:
             flash(error, "error")
         return render_template("customer_form.html", customer=None, data=data)
-    customer = Customer(created_by=g.user.username, updated_by=g.user.username)
-    _apply_customer(customer, data)
-    db.session.add(customer)
-    try:
-        db.session.commit()  # simpan beneran ke database
-        flash("Customer ditambahkan.", "success")
-    except IntegrityError:  # kalau kode/nama dobel (race), batalkan
-        db.session.rollback()
+
+    db_data = _customer_db(data)
+    db_data["created_by"] = g.user.username
+    db_data["updated_by"] = g.user.username
+    db_data["dihapus"] = 0
+    pesan = M_Workshop().add_customer(db_data)
+    if pesan != "":
         flash("Kode atau nama customer sudah ada.", "error")
         return render_template("customer_form.html", customer=None, data=data)
-    return redirect(url_for("customers"))
+    flash("Customer ditambahkan.", "success")
+    return redirect("/mastercustomer")
 
 
-# ubah customer, form di templates/customer_form.html
-@app.route('/master/customers/<int:customer_id>/edit', methods=["GET", "POST"])
-@roles_required("admin")
+@application.route("/ubahmastercustomer/<int:customer_id>", methods=["GET", "POST"])
+@wajib_role("admin")
 def customer_edit(customer_id):
-    customer = db.get_or_404(Customer, customer_id)  # 404 kalau id ga ada
+    m = M_Workshop()
+    customer = m.get_customer(customer_id)
+    if customer is None:
+        abort(404)
     if request.method == "POST":
         data = _customer_data(request.form)
         errors = _customer_errors(data, customer.id)
         if errors:
             for error in errors:
                 flash(error, "error")
-            return render_template(
-                "customer_form.html", customer=customer, data=data
-            )
-        _apply_customer(customer, data)
-        customer.updated_by = g.user.username
-        try:
-            db.session.commit()
-            flash("Customer diperbarui.", "success")
-            return redirect(url_for("customers"))
-        except IntegrityError:
-            db.session.rollback()
+            return render_template("customer_form.html", customer=customer, data=data)
+        db_data = _customer_db(data)
+        db_data["updated_by"] = g.user.username
+        pesan = m.upd_customer(customer.id, db_data)
+        if pesan != "":
             flash("Kode atau nama customer sudah ada.", "error")
-            return render_template(
-                "customer_form.html", customer=customer, data=data
-            )
+            return render_template("customer_form.html", customer=customer, data=data)
+        flash("Customer diperbarui.", "success")
+        return redirect("/mastercustomer")
     return render_template(
         "customer_form.html", customer=customer, data=_customer_values(customer)
     )
 
 
-# aktif/nonaktif customer (ga dihapus, cuma flip status discontinued)
-@app.post('/master/customers/<int:customer_id>/toggle')
-@roles_required("admin")
+@application.route("/aktifmastercustomer/<int:customer_id>", methods=["POST"])
+@wajib_role("admin")
 def customer_toggle(customer_id):
-    customer = db.get_or_404(Customer, customer_id) 
-    customer.discontinued = not customer.discontinued
-    customer.updated_by = g.user.username
-    db.session.commit()
+    m = M_Workshop()
+    customer = m.get_customer(customer_id)
+    if customer is None:
+        abort(404)
+    m.upd_customer_nonaktif(customer.id, not customer.discontinued)
     flash(
-        f"Customer {'diaktifkan' if not customer.discontinued else 'dinonaktifkan'}.",
+        "Customer %s." % ("dinonaktifkan" if not customer.discontinued else "diaktifkan"),
         "success",
     )
-    return redirect(url_for("customers"))
+    return redirect("/mastercustomer")
 
 
-# hapus customer = soft delete, data tetap tersimpan untuk histori
-@app.post('/master/customers/<int:customer_id>/delete')
-@roles_required("admin")
-def customer_delete(customer_id):   
-    customer = db.get_or_404(Customer, customer_id)
-    customer.dihapus = True
-    customer.updated_by = g.user.username
-    db.session.commit()
+@application.route("/hapusmastercustomer/<int:customer_id>", methods=["POST"])
+@wajib_role("admin")
+def customer_delete(customer_id):
+    M_Workshop().del_customer(customer_id)
     flash("Customer dihapus.", "success")
-    return redirect(url_for("customers"))
-    
-
-# ---------------------------------------------------------------------------
-# Master user
-# form-nya ada di templates/master_users.html & user_form.html
-# ---------------------------------------------------------------------------
+    return redirect("/mastercustomer")
 
 
-# ambil data dari form user lalu strip spasi ujung
+# ---------------------------- master user ----------------------------
+
+
 def _user_data(form):
     return {
         "name": (form.get("name") or "").strip(),
@@ -488,8 +800,7 @@ def _user_data(form):
     }
 
 
-# validasi user: nama/username wajib, role valid, password wajib (khusus tambah)
-def _user_errors(data, user_id=None):
+def _user_errors(data, id=0):
     errors = []
     if not data["name"]:
         errors.append("Nama user wajib diisi.")
@@ -499,92 +810,69 @@ def _user_errors(data, user_id=None):
         errors.append("Username wajib diisi.")
     elif len(data["username"]) > 50:
         errors.append("Username maksimal 50 karakter.")
-    else:
-        query = User.query.filter(
-            func.lower(User.username) == data["username"].lower()
-        )
-        if user_id is not None:  # saat edit: kecualikan dirinya
-            query = query.filter(User.id != user_id)
-        if query.first() is not None:
-            errors.append("Username sudah dipakai.")
+    elif M_Workshop().cek_username(data["username"], id):
+        errors.append("Username sudah dipakai.")
     if data["role"] not in ROLES:
         errors.append("Role tidak valid.")
-    if user_id is None and not data["password"]:
+    if id == 0 and not data["password"]:
         errors.append("Password wajib diisi.")
     return errors
 
 
-# halaman daftar user + filter role -> templates/master_users.html
-@app.get('/master/users')
-@roles_required("admin")
+@application.route("/masteruser")
+@wajib_role("admin")
 def users():
-    
-    role = request.args.get("role", "")  # filter dari query string ?role=...
-    query = User.query
-    if role in ROLES:
-        query = query.filter_by(role=role)
-    items = query.order_by(User.name).all()
+    role = request.args.get("role", "")
+    if role not in ROLES:
+        role = ""
     return render_template(
-        "master_users.html", items=items, roles=ROLES, role=role
+        "master_users.html",
+        items=M_Workshop().get_users(role),
+        roles=ROLES,
+        role=role,
     )
 
 
-# tambah user, data dari form "Tambah user" di master_users.html
-@app.post('/master/users/add')
-@roles_required("admin")
+@application.route("/tambahmasteruser", methods=["POST"])
+@wajib_role("admin")
 def user_add():
     data = _user_data(request.form)
     errors = _user_errors(data)
     if errors:
         for error in errors:
             flash(error, "error")
-        return redirect(url_for("users"))
-    user = User(
-        name=data["name"],
-        username=data["username"],
-        role=data["role"],
-        active=True,
+        return redirect("/masteruser")
+    pesan = M_Workshop().add_user(
+        data["name"], data["username"], data["role"], generate_password_hash(data["password"])
     )
-    user.set_password(data["password"])  # hash password sebelum disimpan
-    db.session.add(user)
-    try:        
-        db.session.commit()
-        flash("User ditambahkan.", "success")
-    except IntegrityError:
-        db.session.rollback()
+    if pesan != "":
         flash("Username sudah dipakai.", "error")
-    return redirect(url_for("users"))
+    else:
+        flash("User ditambahkan.", "success")
+    return redirect("/masteruser")
 
 
-# ubah user, form di templates/user_form.html
-@app.route('/master/users/<int:user_id>/edit', methods=["GET", "POST"])
-@roles_required("admin")
+@application.route("/ubahmasteruser/<int:user_id>", methods=["GET", "POST"])
+@wajib_role("admin")
 def user_edit(user_id):
-    user = db.get_or_404(User, user_id)
+    m = M_Workshop()
+    user = m.get_user(user_id)
+    if user is None:
+        abort(404)
     if request.method == "POST":
         data = _user_data(request.form)
         errors = _user_errors(data, user.id)
         if errors:
             for error in errors:
                 flash(error, "error")
-            return render_template(
-                "user_form.html", user=user, data=data, roles=ROLES
-            )
-        user.name = data["name"]
-        user.username = data["username"]
-        user.role = data["role"]
-        if data["password"]:  # password cuma di-hash ulang kalau diisi (opsional saat edit)
-            user.set_password(data["password"])
-        try:
-            db.session.commit()
-            flash("User diperbarui.", "success")
-            return redirect(url_for("users"))
-        except IntegrityError:
-            db.session.rollback()
+            return render_template("user_form.html", user=user, data=data, roles=ROLES)
+        hash_baru = generate_password_hash(data["password"]) if data["password"] else ""
+        pesan = m.upd_user(user.id, data["name"], data["username"], data["role"], hash_baru)
+        if pesan != "":
             flash("Username sudah dipakai.", "error")
-            return render_template(
-                "user_form.html", user=user, data=data, roles=ROLES
-            )
+            return render_template("user_form.html", user=user, data=data, roles=ROLES)
+        flash("User diperbarui.", "success")
+        return redirect("/masteruser")
     data = {
         "name": user.name,
         "username": user.username,
@@ -594,19 +882,17 @@ def user_edit(user_id):
     return render_template("user_form.html", user=user, data=data, roles=ROLES)
 
 
-# aktif/nonaktif user (ga dihapus, cuma flip status)
-@app.post('/master/users/<int:user_id>/toggle')
-@roles_required("admin")
+@application.route("/aktifmasteruser/<int:user_id>", methods=["POST"])
+@wajib_role("admin")
 def user_toggle(user_id):
-    user = db.get_or_404(User, user_id)
-    user.active = not user.active
-    db.session.commit()
-    flash(
-        f"User {'diaktifkan' if user.active else 'dinonaktifkan'}.",
-        "success",
-    )
-    return redirect(url_for("users"))
+    m = M_Workshop()
+    user = m.get_user(user_id)
+    if user is None:
+        abort(404)
+    m.upd_user_aktif(user.id, not user.active)
+    flash("User %s." % ("diaktifkan" if not user.active else "dinonaktifkan"), "success")
+    return redirect("/masteruser")
 
 
-if __name__ == '__main__':
-    app.run(debug=True)
+if __name__ == "__main__":
+    application.run(debug=True)

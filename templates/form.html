@@ -1,4 +1,4 @@
-{# halaman form penawaran baru / edit draft, dirender dari route 'form', 'form_save' & 'form_edit' di app.py #}
+{# halaman form penawaran baru / edit draft, dirender dari route 'form' & 'form_edit' di app.py #}
 {% extends 'base.html' %}
 
 {% block title %}{{ 'Edit Draft' if quotation else 'Penawaran Baru' }} · ERP Workshop{% endblock %}
@@ -14,8 +14,8 @@
     </div>
   </div>
 
-  {# POST ke route 'form_save' (baru) atau 'form_edit' (draft yang sudah ada) #}
-  <form method="post" action="{{ url_for('form_edit', quotation_id=quotation.id) if quotation else url_for('form_save') }}">
+  {# POST ke route 'form' (baru) atau 'form_edit' (draft yang sudah ada) #}
+  <form method="post" action="{{ url_for('form_edit', quotation_id=quotation.id) if quotation else url_for('form') }}">
     <div class="layout">
       <div class="stack">
 
@@ -27,6 +27,10 @@
               <input id="sales" value="{{ g.user.name }}" disabled>
             </div>
             <div class="field">
+              <label for="tanggal">Tanggal</label>
+              <input id="tanggal" value="{{ quotation.created_at.strftime('%d-%m-%Y') if quotation else '' }}" placeholder="Otomatis saat disimpan" disabled>
+            </div>
+            <div class="field">
               <label for="customer">Customer</label>
               <select id="customer" name="customer">
                 <option value="">— pilih customer —</option>
@@ -36,22 +40,24 @@
                 {% endfor %}
               </select>
             </div>
+            <div class="field">
+              <label for="work">Jenis pekerjaan</label>
+              <select id="work" name="work">
+                {% for option in jenis %}
+                  <option {{ 'selected' if option == values.work }}>{{ option }}</option>
+                {% endfor %}
+              </select>
+            </div>
             <div class="field span-2">
               <label for="item">Nama item</label>
-              <input id="item" name="item" maxlength="150" value="{{ values.item }}" placeholder="Contoh: LOCKING BOLT">
-              <p class="hint">Item baru otomatis masuk Master Item.</p>
+              <input id="item" name="item" list="item-list" maxlength="150" value="{{ values.item }}" placeholder="Contoh: LOCKING BOLT">
+              <datalist id="item-list">
+                {% for nama in items %}<option value="{{ nama }}">{% endfor %}
+              </datalist>
             </div>
             <div class="field">
               <label for="qty">Jumlah item</label>
               <input id="qty" name="qty" type="number" min="0" value="{{ values.qty }}">
-            </div>
-            <div class="field">
-              <label for="work">Jenis pekerjaan</label>
-              <select id="work" name="work">
-                {% for option in proses_options %}
-                  <option {{ 'selected' if option == values.work }}>{{ option }}</option>
-                {% endfor %}
-              </select>
             </div>
             <div class="field span-2">
               <label for="notes">Catatan</label>
@@ -61,18 +67,18 @@
         </section>
 
         <section class="card">
-          <h2>Proses &amp; dimensi</h2>
+          <h2>Bentuk &amp; dimensi</h2>
           <div class="grid">
             <div class="field">
               <label for="shape">Bentuk</label>
               <select id="shape" name="shape">
-                {% for option in ('Rod / Bulat', 'Block', 'Plate') %}
+                {% for option in bentuk %}
                   <option {{ 'selected' if option == values.shape }}>{{ option }}</option>
                 {% endfor %}
               </select>
             </div>
             <div class="field">
-              <label for="diameter">Diameter (mm)</label>
+              <label for="diameter">Diameter (mm) <small class="muted">khusus Rod</small></label>
               <input id="diameter" name="diameter" type="number" min="0" value="{{ values.diameter }}">
             </div>
             <div class="field">
@@ -80,15 +86,26 @@
               <input id="length" name="length" type="number" min="0" value="{{ values.length }}">
             </div>
             <div class="field">
+              <label for="tebal">Tebal (mm) <small class="muted">khusus Block / Plate</small></label>
+              <input id="tebal" name="tebal" type="number" min="0" value="{{ values.tebal }}">
+            </div>
+            <div class="field">
+              <label for="lebar">Lebar (mm) <small class="muted">khusus Block / Plate</small></label>
+              <input id="lebar" name="lebar" type="number" min="0" value="{{ values.lebar }}">
+            </div>
+            <div class="field">
               <label for="operators">Jumlah operator</label>
               <input id="operators" name="operators" type="number" min="0" value="{{ values.operators }}">
             </div>
             <div class="field span-2">
-              <label class="check"><input type="checkbox" name="design_baru" {{ 'checked' if values.design_baru }}> <span>Design baru <small class="muted">(estimasi design 5% dari biaya bersih)</small></span></label>
+              <label class="check"><input type="checkbox" name="design_baru" {{ 'checked' if values.design_baru }}> <span>Design baru <small class="muted">(estimasi design 5% dari biaya bersih, di luar total)</small></span></label>
             </div>
           </div>
+        </section>
 
-          <div class="table-wrap" style="margin-top:18px">
+        <section class="card">
+          <h2>Proses</h2>
+          <div class="table-wrap">
             <table class="table">
               <thead><tr><th>Proses</th><th class="num">Estimasi waktu (menit)</th></tr></thead>
               <tbody>
@@ -96,6 +113,7 @@
                   <tr>
                     <td>
                       <select name="proses_nama">
+                        <option value="">—</option>
                         {% for option in proses_options %}
                           <option {{ 'selected' if option == row.nama }}>{{ option }}</option>
                         {% endfor %}
@@ -115,8 +133,12 @@
             <div class="field span-2">
               <label for="material">Material</label>
               <select id="material" name="material">
-                {% for option in ('ST 42 — Ø12 mm', 'ST 37 — Ø16 mm', 'Aluminium 6061') %}
-                  <option {{ 'selected' if option == values.material }}>{{ option }}</option>
+                {% for b in bentuk %}
+                  <optgroup label="{{ b }}">
+                    {% for m in materials if m[1] == b %}
+                      <option value="{{ m[0] }}" {{ 'selected' if m[0] == values.material }}>{{ m[0] }}</option>
+                    {% endfor %}
+                  </optgroup>
                 {% endfor %}
               </select>
             </div>
@@ -124,19 +146,43 @@
 
           <div class="table-wrap" style="margin-top:16px">
             <table class="table">
-              <thead><tr><th>Consumable</th><th class="num">Jumlah</th><th class="num">Subtotal</th></tr></thead>
-              <tbody>
+              <thead><tr><th>Consumable</th><th class="num">Jumlah</th></tr></thead>
+              <tbody id="consumable-rows">
                 {% for row in values.consumables %}
                   <tr>
-                    <td>{{ row.nama }}<input type="hidden" name="consumable_nama" value="{{ row.nama }}"></td>
+                    <td>
+                      <select name="consumable_nama">
+                        <option value="">—</option>
+                        {% for nama in consumables %}
+                          <option {{ 'selected' if nama == row.nama }}>{{ nama }}</option>
+                        {% endfor %}
+                      </select>
+                    </td>
                     <td class="num"><input name="consumable_qty" type="number" min="0" value="{{ row.qty }}" style="max-width:90px; text-align:right"></td>
-                    <td class="num">Rp 0</td>
                   </tr>
                 {% endfor %}
               </tbody>
             </table>
           </div>
-          <button class="btn btn-ghost btn-sm" type="button" style="margin-top:14px">+ Tambah consumable</button>
+          <button class="btn btn-ghost btn-sm" type="button" data-add-row="#consumable-rows" style="margin-top:14px">+ Tambah consumable</button>
+        </section>
+
+        <section class="card">
+          <h2>Finance</h2>
+          <div class="grid">
+            <div class="field">
+              <label for="ll1">LL 1 (%) <small class="muted">faktor resiko</small></label>
+              <input id="ll1" name="ll1" type="number" step="0.01" min="0" value="{{ '%g'|format(values.ll1 * 100) }}">
+            </div>
+            <div class="field">
+              <label for="ll2">LL 2 (%) <small class="muted">OA</small></label>
+              <input id="ll2" name="ll2" type="number" step="0.01" min="0" value="{{ '%g'|format(values.ll2 * 100) }}">
+            </div>
+            <div class="field">
+              <label for="rm">RM (%) <small class="muted">rencana margin</small></label>
+              <input id="rm" name="rm" type="number" step="0.01" min="0" value="{{ '%g'|format(values.rm * 100) }}">
+            </div>
+          </div>
         </section>
       </div>
 
@@ -146,30 +192,35 @@
             <h2>Estimasi</h2>
             <span class="badge draft">Draft</span>
           </div>
-          <dl class="summary-list">
-            <div><dt>Tenaga kerja</dt><dd>Rp 0</dd></div>
-            <div><dt>Listrik</dt><dd>Rp 0</dd></div>
-            <div><dt>Material</dt><dd>Rp 0</dd></div>
-            <div><dt>Consumables</dt><dd>Rp 0</dd></div>
-            <div><dt>Depresiasi mesin</dt><dd>Rp 0</dd></div>
-            <div class="sep"></div>
-            <div class="total"><dt>Biaya bersih</dt><dd>Rp 0</dd></div>
-            <div><dt>Biaya satuan</dt><dd>Rp 0</dd></div>
-          </dl>
-
-          <div class="price-box">
-            <div><span>LL1</span><strong>10%</strong></div>
-            <div><span>LL2</span><strong>5%</strong></div>
-            <div><span>RM</span><strong>15%</strong></div>
-            <div class="big"><span>Harga jual</span><strong>Rp 0</strong></div>
-          </div>
-
-          <div class="note-box">Depresiasi bangunan dan biaya design ditampilkan sebagai info, tidak masuk total.</div>
+          {% if quotation %}
+            {% set h = hitung(quotation) %}
+            <dl class="summary-list">
+              <div><dt>Total waktu</dt><dd>{{ '%g'|format(h.menit) }} menit</dd></div>
+              <div><dt>Tenaga kerja</dt><dd>{{ h.tk|rupiah }}</dd></div>
+              <div><dt>Listrik</dt><dd>{{ h.listrik|rupiah }}</dd></div>
+              <div><dt>Material</dt><dd>{{ h.material|rupiah }}</dd></div>
+              <div><dt>Consumables</dt><dd>{{ h.consumables|rupiah }}</dd></div>
+              <div><dt>Depresiasi mesin</dt><dd>{{ h.depresiasi|rupiah }}</dd></div>
+              <div class="sep"></div>
+              <div class="total"><dt>Biaya bersih</dt><dd>{{ h.bersih|rupiah }}</dd></div>
+              <div><dt>Biaya satuan</dt><dd>{{ h.satuan|rupiah }}</dd></div>
+            </dl>
+            <div class="price-box">
+              {% if quotation.design_baru %}
+                <div><span>Design baru (info)</span><strong>{{ h.design|rupiah }}</strong></div>
+              {% endif %}
+              <div><span>Depresiasi bangunan (info)</span><strong>{{ h.bangunan|rupiah }}</strong></div>
+              <div class="big"><span>Harga jual</span><strong>{{ h.harga|rupiah }}</strong></div>
+            </div>
+            <p class="hint" style="margin-top:10px">Angka dari data tersimpan. Simpan draft untuk menghitung ulang.</p>
+          {% else %}
+            <p class="hint">Estimasi muncul setelah draft disimpan.</p>
+          {% endif %}
 
           <div class="form-actions">
             <button class="btn btn-block" type="submit">Simpan draft</button>
           </div>
-          <p class="hint" style="margin-top:10px">Harga hanya bisa dicetak setelah disetujui MD.</p>
+          <p class="hint" style="margin-top:10px">Harga hanya bisa keluar setelah disetujui MD.</p>
         </section>
       </aside>
     </div>

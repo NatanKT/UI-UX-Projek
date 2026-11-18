@@ -16,11 +16,11 @@
     <nav class="nav">
       <a class="{{ 'active' if request.endpoint in ('index', 'detail') }}" href="{{ url_for('index') }}">Penawaran</a>
       {% if g.user and g.user.role in ('admin', 'sales') %}
-        <a class="{{ 'active' if request.endpoint in ('form', 'form_save', 'form_edit') }}" href="{{ url_for('form') }}">+ Baru</a>
+        <a class="{{ 'active' if request.endpoint in ('form', 'form_edit') }}" href="{{ url_for('form') }}">+ Baru</a>
       {% endif %}
       {# menu Master cuma muncul kalau user login dan role admin #}
       {% if g.user and g.user.role == 'admin' %}
-        <a class="{{ 'active' if request.endpoint in ('master', 'customers', 'customer_add', 'customer_edit', 'customer_toggle', 'customer_delete', 'users', 'user_add', 'user_edit', 'user_toggle') }}" href="{{ url_for('master') }}">Master</a>
+        <a class="{{ 'active' if request.endpoint in ('master', 'master_list', 'master_add', 'master_edit', 'master_toggle', 'master_hapus', 'customers', 'customer_add', 'customer_edit', 'customer_toggle', 'customer_delete', 'users', 'user_add', 'user_edit', 'user_toggle') }}" href="{{ url_for('master') }}">Master</a>
         <a href="{{ url_for('index') }}">Pengaturan</a>
       {% endif %}
     </nav>
@@ -28,8 +28,8 @@
     <div class="userbox">
       <span class="avatar">{{ g.user.name[:2]|upper }}</span>
       <span class="usertext"><strong>{{ g.user.name }}</strong><small>{{ g.user.role_label }}</small></span>
-      {# tombol logout submit POST ke route 'auth.logout' #}
-      <form method="post" action="{{ url_for('auth.logout') }}">
+      {# tombol logout submit POST ke route 'logout' #}
+      <form method="post" action="{{ url_for('logout') }}">
         <button class="btn btn-ghost btn-sm" type="submit">Keluar</button>
       </form>
     </div>

@@ -1,16 +1,39 @@
-{# halaman detail penawaran, dirender dari route 'detail' di app.py. masih placeholder #}
+{# halaman detail penawaran, dirender dari route 'detail' di app.py #}
 {% extends 'base.html' %}
+{% set h = hitung(quotation) %}
+
+{% block title %}{{ quotation.nomor }} · ERP Workshop{% endblock %}
+
+{% block content %}
+  <a class="backlink" href="{{ url_for('index') }}">← Kembali ke penawaran</a>
 
   <div class="page-head">
     <div>
-      <p class="eyebrow">Penawaran · —</p>
-      <h1>—</h1>
-      <p class="muted">— · 0 unit · <span class="badge draft">Draft</span></p>
+      <p class="eyebrow">Penawaran · {{ quotation.nomor }}</p>
+      <h1>{{ quotation.item or '—' }}</h1>
+      <p class="muted">{{ quotation.customer.nama if quotation.customer else '—' }} · {{ quotation.qty }} unit ·
+        <span class="badge {{ quotation.status }}">{{ LABEL_STATUS.get(quotation.status, quotation.status) }}</span></p>
     </div>
     <div class="actions">
-      <button class="btn btn-ghost" type="button">Cetak</button>
-      <button class="btn btn-ghost" type="button">Edit</button>
-      <button class="btn" type="button">Ajukan approval</button>
+      {% if quotation.status == 'approved' %}
+        <button class="btn btn-ghost" type="button" onclick="window.print()">Cetak</button>
+      {% endif %}
+      {% if quotation.status == 'draft' and g.user.role in ('admin', 'sales') %}
+        <a class="btn btn-ghost" href="{{ url_for('form_edit', quotation_id=quotation.id) }}">Edit</a>
+        <form method="post" action="{{ url_for('form_ajukan', quotation_id=quotation.id) }}">
+          <button class="btn" type="submit">Ajukan approval</button>
+        </form>
+      {% endif %}
+      {% if quotation.status == 'submitted' and boleh_putus %}
+        <form method="post" action="{{ url_for('detail_putus', quotation_id=quotation.id) }}">
+          <input type="hidden" name="status" value="rejected">
+          <button class="btn btn-ghost" type="submit">Tolak</button>
+        </form>
+        <form method="post" action="{{ url_for('detail_putus', quotation_id=quotation.id) }}">
+          <input type="hidden" name="status" value="approved">
+          <button class="btn" type="submit">Setujui</button>
+        </form>
+      {% endif %}
     </div>
   </div>
 
@@ -20,34 +43,46 @@
       <section class="card">
         <h2>Informasi</h2>
         <dl class="info-grid">
-          <div><dt>Customer</dt><dd>—</dd></div>
-          <div><dt>Sales</dt><dd>Rina Sales</dd></div>
-          <div><dt>Jenis pekerjaan</dt><dd>—</dd></div>
-          <div><dt>Jumlah item</dt><dd>0 unit</dd></div>
-          <div><dt>Dibuat</dt><dd>—</dd></div>
-          <div><dt>Update terakhir</dt><dd>—</dd></div>
-          <div><dt>Revisi dari</dt><dd>—</dd></div>
-          <div><dt>Design baru</dt><dd>—</dd></div>
-          <div class="span-2"><dt>Catatan</dt><dd>—</dd></div>
+          <div><dt>Customer</dt><dd>{{ quotation.customer.nama if quotation.customer else '—' }}</dd></div>
+          <div><dt>Sales</dt><dd>{{ quotation.sales or '—' }}</dd></div>
+          <div><dt>Jenis pekerjaan</dt><dd>{{ quotation.work or '—' }}</dd></div>
+          <div><dt>Jumlah item</dt><dd>{{ quotation.qty }} unit</dd></div>
+          <div><dt>Dibuat</dt><dd>{{ quotation.created_at.strftime('%d-%m-%Y %H:%M') }} · {{ quotation.created_by or '—' }}</dd></div>
+          <div><dt>Update terakhir</dt><dd>{{ quotation.updated_at.strftime('%d-%m-%Y %H:%M') }} · {{ quotation.updated_by or '—' }}</dd></div>
+          <div><dt>Design baru</dt><dd>{{ 'Ya' if quotation.design_baru else 'Tidak' }}</dd></div>
+          <div class="span-2"><dt>Catatan</dt><dd>{{ quotation.notes or '—' }}</dd></div>
         </dl>
       </section>
 
       <section class="card">
         <h2>Dimensi &amp; proses</h2>
         <dl class="info-grid">
-          <div><dt>Bentuk</dt><dd>—</dd></div>
-          <div><dt>Material</dt><dd>—</dd></div>
-          <div><dt>Dimensi</dt><dd>—</dd></div>
-          <div><dt>Operator</dt><dd>0 orang</dd></div>
-          <div><dt>Total waktu</dt><dd>0 menit</dd></div>
-          <div><dt>Volume material</dt><dd>0 m³</dd></div>
+          <div><dt>Bentuk</dt><dd>{{ quotation.shape or '—' }}</dd></div>
+          <div><dt>Material</dt><dd>{{ quotation.material or '—' }}</dd></div>
+          <div><dt>Dimensi</dt><dd>
+            {{ quotation.diameter }} mm ⌀ · {{ quotation.length }} mm
+            {% if not (quotation.shape or '').startswith('Rod') %} · {{ quotation.tebal }} × {{ quotation.lebar }} mm{% endif %}
+          </dd></div>
+          <div><dt>Operator</dt><dd>{{ quotation.operators }} orang</dd></div>
+          <div><dt>Total waktu</dt><dd>{{ '%g'|format(h.menit) }} menit</dd></div>
+          <div><dt>Volume material</dt><dd>{{ '%.6f'|format(h.total_volume) }} m³ <small class="muted">(termasuk toleransi)</small></dd></div>
         </dl>
 
         <div class="table-wrap" style="margin-top:18px">
           <table class="table">
-            <thead><tr><th>#</th><th>Proses</th><th class="num">Waktu (menit)</th></tr></thead>
+            <thead><tr><th>#</th><th>Proses</th><th class="num">Waktu (menit)</th><th class="num">Listrik</th><th class="num">Depresiasi</th></tr></thead>
             <tbody>
-              <tr><td class="empty" colspan="3">Belum ada proses.</td></tr>
+              {% for row in h.rincian %}
+                <tr>
+                  <td>{{ loop.index }}</td>
+                  <td>{{ row.nama }}</td>
+                  <td class="num">{{ '%g'|format(row.menit) }}</td>
+                  <td class="num">{{ row.listrik|rupiah }}</td>
+                  <td class="num">{{ row.depresiasi|rupiah }}</td>
+                </tr>
+              {% else %}
+                <tr><td class="empty" colspan="5">Belum ada proses.</td></tr>
+              {% endfor %}
             </tbody>
           </table>
         </div>
@@ -58,7 +93,16 @@
         <table class="table">
           <thead><tr><th>Nama</th><th class="num">Jumlah</th><th class="num">Harga</th><th class="num">Subtotal</th></tr></thead>
           <tbody>
-            <tr><td class="empty" colspan="4">Belum ada consumable.</td></tr>
+            {% for row in h.rincian_consumables %}
+              <tr>
+                <td>{{ row.nama }}</td>
+                <td class="num">{{ row.qty }}</td>
+                <td class="num">{{ row.harga|rupiah }}</td>
+                <td class="num">{{ row.subtotal|rupiah }}</td>
+              </tr>
+            {% else %}
+              <tr><td class="empty" colspan="4">Belum ada consumable.</td></tr>
+            {% endfor %}
           </tbody>
         </table>
       </section>
@@ -70,15 +114,17 @@
         </div>
         <table class="table">
           <tbody>
-            <tr><td>Tenaga kerja</td><td class="num">Rp 0</td></tr>
-            <tr><td>Listrik</td><td class="num">Rp 0</td></tr>
-            <tr><td>Material <small class="muted">0 m³</small></td><td class="num">Rp 0</td></tr>
-            <tr><td>Consumables</td><td class="num">Rp 0</td></tr>
-            <tr><td>Depresiasi mesin</td><td class="num">Rp 0</td></tr>
-            <tr><td>Depresiasi bangunan <small class="muted">tidak masuk total</small></td><td class="num">Rp 0</td></tr>
-            <tr><td>Design <small class="muted">tidak masuk total</small></td><td class="num">Rp 0</td></tr>
-            <tr style="border-top:1px solid var(--line)"><td class="strong">Biaya bersih</td><td class="num strong">Rp 0</td></tr>
-            <tr><td>Biaya satuan</td><td class="num">Rp 0</td></tr>
+            <tr><td>Tenaga kerja <small class="muted">{{ '%g'|format(h.menit) }} menit × {{ quotation.operators }} orang</small></td><td class="num">{{ h.tk|rupiah }}</td></tr>
+            <tr><td>Listrik</td><td class="num">{{ h.listrik|rupiah }}</td></tr>
+            <tr><td>Material <small class="muted">{{ '%.6f'|format(h.total_volume) }} m³</small></td><td class="num">{{ h.material|rupiah }}</td></tr>
+            <tr><td>Consumables</td><td class="num">{{ h.consumables|rupiah }}</td></tr>
+            <tr><td>Depresiasi mesin</td><td class="num">{{ h.depresiasi|rupiah }}</td></tr>
+            <tr><td>Depresiasi bangunan <small class="muted">tidak masuk total</small></td><td class="num">{{ h.bangunan|rupiah }}</td></tr>
+            {% if quotation.design_baru %}
+              <tr><td>Design <small class="muted">tidak masuk total</small></td><td class="num">{{ h.design|rupiah }}</td></tr>
+            {% endif %}
+            <tr style="border-top:1px solid var(--line)"><td class="strong">Biaya bersih</td><td class="num strong">{{ h.bersih|rupiah }}</td></tr>
+            <tr><td>Biaya satuan</td><td class="num">{{ h.satuan|rupiah }}</td></tr>
           </tbody>
         </table>
       </section>
@@ -87,22 +133,32 @@
     <aside class="stack">
       <section class="card summary">
         <h2>Harga penawaran</h2>
-        <div class="price-box">
-          <div><span>Biaya bersih</span><strong>Rp 0</strong></div>
-          <div><span>LL1 + LL2</span><strong>15%</strong></div>
-          <div><span>RM</span><strong>15%</strong></div>
-          <div class="big"><span>Harga jual</span><strong>Rp 0</strong></div>
-        </div>
-        <dl class="summary-list" style="margin-top:14px">
-          <div><dt>Harga satuan</dt><dd>Rp 0</dd></div>
-          <div><dt>Status</dt><dd><span class="badge draft">Draft</span></dd></div>
-        </dl>
+        {% if quotation.status == 'approved' or boleh_putus %}
+          <div class="price-box">
+            <div><span>Biaya bersih</span><strong>{{ h.bersih|rupiah }}</strong></div>
+            <div><span>LL1 + LL2</span><strong>{{ '%g'|format((quotation.ll1 + quotation.ll2) * 100) }}%</strong></div>
+            <div><span>RM</span><strong>{{ '%g'|format(quotation.rm * 100) }}%</strong></div>
+            <div class="big"><span>Harga jual</span><strong>{{ h.harga|rupiah }}</strong></div>
+          </div>
+          <dl class="summary-list" style="margin-top:14px">
+            <div><dt>Harga satuan</dt><dd>{{ h.harga_satuan|rupiah }}</dd></div>
+            <div><dt>Status</dt><dd><span class="badge {{ quotation.status }}">{{ LABEL_STATUS.get(quotation.status, quotation.status) }}</span></dd></div>
+          </dl>
+        {% else %}
+          <p class="hint">Harga jual keluar setelah disetujui MD.</p>
+          <dl class="summary-list" style="margin-top:14px">
+            <div><dt>Status</dt><dd><span class="badge {{ quotation.status }}">{{ LABEL_STATUS.get(quotation.status, quotation.status) }}</span></dd></div>
+          </dl>
+        {% endif %}
       </section>
 
       <section class="card">
         <h2>Riwayat</h2>
         <ul class="timeline">
-          <li><span class="muted">Belum ada riwayat.</span></li>
+          <li><strong>Dibuat</strong><br><span class="muted">{{ quotation.created_at.strftime('%d-%m-%Y %H:%M') }} · {{ quotation.created_by or '—' }}</span></li>
+          {% if quotation.updated_at != quotation.created_at %}
+            <li><strong>Diubah</strong><br><span class="muted">{{ quotation.updated_at.strftime('%d-%m-%Y %H:%M') }} · {{ quotation.updated_by or '—' }}</span></li>
+          {% endif %}
         </ul>
       </section>
     </aside>

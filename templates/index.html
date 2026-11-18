@@ -1,4 +1,4 @@
-{# halaman dashboard penawaran, dirender dari route 'index' di app.py. masih placeholder #}
+{# halaman dashboard penawaran, dirender dari route 'index' di app.py #}
 {% extends 'base.html' %}
 
 {% block content %}
@@ -20,13 +20,13 @@
     </div>
     <div class="stat">
       <span>Menunggu approval</span>
-      <strong>0</strong>
-      <em>Nilai Rp 0</em>
+      <strong>{{ menunggu|length }}</strong>
+      <em>Nilai {{ nilai_menunggu|rupiah }}</em>
     </div>
     <div class="stat highlight">
       <span>Disetujui bulan ini</span>
-      <strong>Rp 0</strong>
-      <em>0 penawaran</em>
+      <strong>{{ nilai_disetujui|rupiah }}</strong>
+      <em>{{ disetujui|length }} penawaran</em>
     </div>
   </section>
 
@@ -70,6 +70,7 @@
               <td class="num">{{ quotation.qty }}</td>
               <td><span class="badge draft">Draft</span></td>
               <td>
+                <a class="btn btn-ghost btn-sm" href="{{ url_for('detail', quotation_id=quotation.id) }}">Detail</a>
                 <a class="btn btn-ghost btn-sm" href="{{ url_for('form_edit', quotation_id=quotation.id) }}">Lanjutkan</a>
                 <form method="post" action="{{ url_for('form_delete', quotation_id=quotation.id) }}" data-confirm="Hapus draft {{ quotation.nomor }}?" style="display:inline">
                   <button class="btn btn-ghost btn-sm" type="submit">Hapus</button>
@@ -106,9 +107,9 @@
             <td>{{ quotation.customer.nama if quotation.customer else '—' }}</td>
             <td>{{ quotation.item or '—' }}</td>
             <td class="num">{{ quotation.qty }}</td>
-            <td><span class="badge {{ quotation.status }}">{{ quotation.status|capitalize }}</span></td>
-            <td class="num">Rp 0</td>
-            <td></td>
+            <td><span class="badge {{ quotation.status }}">{{ LABEL_STATUS.get(quotation.status, quotation.status) }}</span></td>
+            <td class="num">{{ hitung(quotation).harga|rupiah if quotation.status == 'approved' else '—' }}</td>
+            <td><a class="btn btn-ghost btn-sm" href="{{ url_for('detail', quotation_id=quotation.id) }}">Detail</a></td>
           </tr>
         {% else %}
           <tr><td class="empty" colspan="8">Belum ada penawaran.</td></tr>

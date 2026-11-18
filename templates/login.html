@@ -1,4 +1,4 @@
-{# halaman login, dirender dari route 'auth.login' di auth.py #}
+{# halaman login, dirender dari route 'login' di app.py #}
 {% extends 'base.html' %}
 
 {% block title %}Masuk · ERP Workshop{% endblock %}
@@ -6,7 +6,7 @@
 {% block body %}
 <div class="auth">
   <section class="auth-art">
-    <a class="brand" href="{{ url_for('auth.login') }}"><span class="mark">W</span> ERP Workshop</a>
+    <a class="brand" href="{{ url_for('login') }}"><span class="mark">W</span> ERP Workshop</a>
     <div class="auth-quote">
       <p>Dari estimasi menit di lantai kerja, jadi harga penawaran yang bisa dipertanggungjawabkan.</p>
       <span>Penawaran &amp; costing workshop — satu alur.</span>
@@ -26,8 +26,8 @@
         {% endfor %}
       {% endwith %}
 
-      {# form submit POST ke route 'auth.login' (username + password) #}
-      <form method="post" action="{{ url_for('auth.login') }}">
+      {# form submit POST ke route 'login' (username + password) #}
+      <form method="post" action="{{ url_for('login') }}">
         <input type="hidden" name="next" value="{{ request.args.get('next', '') }}">
         <div class="field">
           <label for="username">Username</label>
