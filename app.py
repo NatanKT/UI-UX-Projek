@@ -621,7 +621,6 @@ CUSTOMER_FIELDS = {
     "other_bayar": ("Other bayar", 100),
     "company": ("Company", 100),
     "bu": ("BU", 50),
-    "kode_oracle": ("Kode Oracle", 50),
 }
 
 KOLOM_CUSTOMER = {
@@ -636,7 +635,6 @@ KOLOM_CUSTOMER = {
     "other_bayar": "Other_Bayar",
     "company": "Company",
     "bu": "BU",
-    "kode_oracle": "Kode_Oracle",
     "alamat": "Alamat",
     "alamat_tagihan": "Alamat_Tagihan",
     "limit_kredit": "LimitKredit",
