@@ -247,6 +247,25 @@ class MasterDataTest(MasterTest):
         self.assertEqual(len([c for c in M().get_master("consumable") if c.nama == "Coolant X"]), 1)
 
 
+    def test_material_bentuk_bebas_teks(self):
+        response = self.client.post(
+            "/tambahmastermaterial",
+            data={"nama": "Besi Bulat", "bentuk": "Bulat", "density": "7850", "harga_kg": "20000"},
+            follow_redirects=True,
+        )
+        self.assertIn(b"Besi Bulat", response.data)
+        material = [m for m in M().get_master("material") if m.nama == "Besi Bulat"][0]
+        self.assertEqual(material.bentuk, "Bulat")
+
+        response = self.client.post(
+            "/tambahmastermaterial",
+            data={"nama": "Salah Angka", "bentuk": "Bulat", "density": "abc", "harga_kg": "1"},
+            follow_redirects=True,
+        )
+        self.assertIn(b"Density", response.data)
+        self.assertEqual(len([m for m in M().get_master("material") if m.nama == "Salah Angka"]), 0)
+
+
 class UserMasterTest(MasterTest):
     def test_tambah_user_dan_password_di_hash(self):
         response = self.add_user("Rina Sales", "rina", "sales", "rahasia")

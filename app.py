@@ -462,7 +462,7 @@ MASTER = {
         "judul": "Material",
         "kolom": [
             {"nama": "nama", "label": "Nama material", "tipe": "text"},
-            {"nama": "bentuk", "label": "Bentuk", "tipe": "select", "sumber": BENTUK},
+            {"nama": "bentuk", "label": "Bentuk", "tipe": "text"},
             {"nama": "density", "label": "Density (kg/m³)", "tipe": "number"},
             {"nama": "harga_kg", "label": "Harga / kg", "tipe": "number", "uang": True},
         ],
@@ -497,11 +497,16 @@ def _master_data(conf, form):
     data = {"nama": (form.get("nama") or "").strip()}
     salah = []
     for kolom in conf["kolom"]:
-        if kolom["nama"] != "nama":
-            try:
-                data[kolom["nama"]] = max(float(form.get(kolom["nama"]) or 0), 0)
-            except ValueError:
-                salah.append(kolom["label"])
+        if kolom["nama"] == "nama":
+            continue
+        nilai = (form.get(kolom["nama"]) or "").strip()
+        if kolom["tipe"] != "number":
+            data[kolom["nama"]] = nilai
+            continue
+        try:
+            data[kolom["nama"]] = max(float(nilai or 0), 0)
+        except ValueError:
+            salah.append(kolom["label"])
     return data, salah
 
 
